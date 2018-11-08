@@ -1,0 +1,91 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_mask.ftn90
+! Creation       : A. Kallaur - July 2007
+! Description    : The input field is scanned to determine which
+!                  elements of the array are to be dicarded.
+!
+! Extra info     :
+!
+! Arguments: IN
+!              fin        --> Array of local grid point locations to be scanned
+!              nc         --> size of fin (single dimension).
+!              grdpt_type --> String indentifying whether incoming array fin is
+!                             loaded with i or j local coordinates.
+!
+!==============================================================================
+subroutine chm_mjrpts_mask(fin,ns,grdpt_type)
+   use chm_utils_mod
+   use chm_ptopo_grid_mod
+   use chm_mjrpts_sortinfo_mod
+   implicit  none
+
+   integer,       intent(in)  :: ns
+   real,          intent(in)  :: fin(ns)
+   character (len = *), intent(in)  :: grdpt_type
+
+!  external functions
+
+   integer  longueur
+   external longueur
+
+!  Local variables
+
+   integer  :: i,kount
+   real     :: up_lim
+   real     :: offset
+!
+!  Determine whether we got I or J coords, and set offset and
+!  upper limit to computed domain accordingly.
+!
+   select case (grdpt_type(1:longueur(grdpt_type)))
+     case ( 'GILC' )
+          offset = real(chm_offi)
+          up_lim = real(chm_ni)
+     case ( 'GJLC' )
+          offset = real(chm_offj)
+          up_lim = real(chm_nj)
+     case default
+            write(chm_lun_out, *) '###  Error in chm_mjrpts_mask   ###'
+            write(chm_lun_out, *) '#  Illegal char key: ', grdpt_type
+            write(chm_lun_out, *) '#  Acceptable values: {GILC,GILC} #'
+            write(chm_lun_out, *) '###            ABORT            ###'
+            call chm_stop('chm_mjrpts_mask ', -1)
+   end select
+!
+!  Scan, and populate the mask vector "pt_bnd_mask".
+!
+   do i=1,ns
+      if (((fin(i)-offset) < 1.0).or.((fin(i)-offset) > up_lim)) then
+         pt_bnd_mask(i) = .false.
+      endif
+   enddo
+!
+!  Adjust nb_sources.
+!
+   kount = 0
+   do i=1,ns
+      if (pt_bnd_mask(i)) then
+         kount = kount + 1
+      endif
+   enddo
+!
+!  Get the "trimmed" size of the point source array.
+!
+   nb_sources = kount
+   if (nb_sources < nb_sources_in) then
+      write(chm_lun_out,*) 'Point source array trimmed by',nb_sources_in-nb_sources
+      write(chm_lun_out,*) 'Resultant nb_sources: ', nb_sources
+   endif
+
+   return
+end subroutine chm_mjrpts_mask

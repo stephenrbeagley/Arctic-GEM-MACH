@@ -1,0 +1,221 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_diff_boundary.ftn90
+! Creation       : Paul Makar, 2007
+! Description    : Vertical diffusion for chemical species
+!
+! Extra info     : Vertical diffusion is calculated using surface emissions and deposition velocity
+!                  as boundary conditions. 
+!
+! Arguments:
+!           IN
+!              emissions  -> The sum of area and biogenic emissions
+!              vd         -> Dry deposition velocities for gas
+!              ubf        -> Species upper lid flux boundary condition index values
+!              kt         -> Thermal vertical diffusion coefficient
+!              area       -> Area of grid square
+!              rho        -> Air density
+!              ni         -> Grid size ni
+!              nsp_diff   -> Number of chemical species to be diffused
+!              ni_net     -> ni * nsp_diff * nb_bins
+!              nk         -> Nb of vertical levels
+!              zf         -> Concentration-layer height above sea-level
+!              zh         -> Diffusion constant height above sea-level
+!              dt         -> Chemistry timestep
+!              nb_bins    -> Number of bins per chemical species (1 for gaseous species)
+!
+!           INOUT
+!              CONC       ->   species concentrations
+!
+!=============================================================================
+
+subroutine mach_diff_boundary(CONC, emissions, vd, ubf, kt, area, rho,      &
+                             ni, ni_net, nsp_diff, nk, zf, zh, dt, nb_bins )
+   use chm_utils_mod
+   use mach_headers_mod, only: mach_tridiag
+   implicit none
+
+   integer, intent(in)    :: ni, ni_net, nk, nsp_diff, nb_bins
+   real,    intent(in)    :: dt, zf(ni, nk), zh(ni, nk), kt(ni, nk)
+   real,    intent(in)    :: vd(ni_net), emissions(ni_net), ubf(ni_net)
+   real,    intent(in)    :: area(ni), rho(ni, nk)
+   real,    intent(inout) :: conc(ni_net, nk)
+
+   integer :: i, k, sp_idx, ii
+
+!  local workspace arrays and variables:
+
+   real :: a(ni, nk), af(ni_net, nk)
+   real :: b(ni, nk), bf(ni_net, nk)
+   real :: c(ni, nk), cf(ni_net, nk)
+   real :: beta(ni_net, nk)
+   real :: b1
+   real :: triwk1(ni_net), triwk2(ni_net, nk)
+   logical local_dbg
+   real :: maxmassratio, minmassratio
+!
+!  diagnostic arrays
+!
+   real, dimension(:, :) :: colmassa(ni, nsp_diff * nb_bins), colmassb(ni, nsp_diff * nb_bins)
+
+   local_dbg = (.false. .or. global_debug)
+
+   if (local_dbg) then
+      write (chm_lun_out, *) "Entering mach_diff_boundary"
+   end if
+
+!  Test:  add emitted mass to first layer:
+   do i = 1, ni
+      do sp_idx = 1, nsp_diff * nb_bins
+         ii = calc_ii(sp_idx, i, nsp_diff, nb_bins)
+         conc(ii, nk) = conc(ii, nk) + emissions(ii) * dt / (rho(i, nk) * area(i) * (zf(i, nk - 1) - zf(i, nk)) )
+      end do
+   end do
+!  Test:  deposition as exponential decay from first layer:
+   do i = 1, ni
+      do sp_idx = 1, nsp_diff * nb_bins
+         ii = calc_ii(sp_idx, i, nsp_diff, nb_bins)
+         conc(ii, nk) = conc(ii, nk) * exp(-vd(ii) * dt / (zf(i, nk - 1) - zf(i, nk)))
+      end do
+   end do
+
+
+!  First, calculate the coefficients for the desired matrix-vector system, for the
+!  current time-step:
+!  Interior rows of tridiagonal matrix:
+   do k = 2, nk - 1
+      do i = 1, ni
+         c(i, k) = - dt * kt(i, nk - k) / (zf(i, nk - k) - zf(i, nk - k + 1))         &
+                        / (zh(i, nk - k) - zh(i, nk - k + 1))
+         a(i, k) = - dt * kt(i, nk - k + 1) / (zf(i, nk - k + 1) - zf(i, nk - k + 2)) &
+                        / (zh(i, nk - k) - zh(i, nk - k + 1))
+         b(i, k) = 1. - c(i, k) - a(i, k)
+      end do
+   end do
+
+   do i = 1, ni
+
+!  Top and bottom (boundary condition rows)
+!  bottom layer equations:
+
+      b1      = (zf(i, nk - 1) - zf(i, nk)) **2
+      c(i, 1) = - dt * kt(i, nk - 1) / b1
+      b(i, 1) = 1. - c(i, 1)
+
+!  top layer equations:
+
+      b1       = (zf(i, 1) - zf(i, 2)) **2
+      a(i, nk) = - dt * kt(i, 1) / b1
+      b(i, nk) =  1. - a(i, nk)
+   end do
+
+!  Prepare rhs of equation
+!  All species:
+
+   do k = 1, nk
+      do ii = 1, ni_net
+         beta(ii, k) = conc(ii, nk - k + 1)
+      end do
+   end do
+
+!  Transfer species invariant portions of matrix to larger matrix with
+!  ni*nsp_diff*nb_bins as the inner index:
+
+   do k = 1, nk
+      do i = 1, ni
+         do sp_idx = 1, nsp_diff * nb_bins
+            ii = calc_ii(sp_idx, i, nsp_diff, nb_bins)
+            af(ii, k) = a(i, k)
+            bf(ii, k) = b(i, k)
+            cf(ii, k) = c(i, k)
+         end do
+      end do
+   end do
+
+   do i = 1, ni
+      do sp_idx = 1, nsp_diff * nb_bins
+         ii = calc_ii(sp_idx, i, nsp_diff, nb_bins)
+
+! upper lid source term added on rhs:
+         beta(ii, nk) =  beta(ii, nk) - &
+                           ubf(ii) * dt / (rho(i, 1) * area(i) * (zf(i, 1) - zf(i, 2)) )
+      end do
+   end do
+
+! Some diagnostics
+!  check column mass:
+!  add mass in each column before the update:
+!
+   colmassb = 0.0
+   do i = 1 , ni
+      do sp_idx = 1 , nsp_diff * nb_bins
+         ii = calc_ii(sp_idx, i, nsp_diff, nb_bins)
+         do k = 2, nk - 1
+            colmassb(i, sp_idx) = colmassb(i, sp_idx) + conc(ii, k) * rho(i, k) * (zh(i, k - 1) - zh(i, k))
+         end do
+!  top
+         colmassb(i, sp_idx) = colmassb(i, sp_idx) + conc(ii, 1) * rho(i, 1) * (zf(i, 1) - zh(i, 1))
+!  bottom
+         colmassb(i, sp_idx) = colmassb(i, sp_idx) + conc(ii, nk) * rho(i, nk) * (zh(i, nk - 1) - zf(i, nk))
+      end do
+   end do
+
+   call mach_tridiag(af, bf, cf, beta, triwk1, triwk2, CONC, ni_net, nk)
+
+   do k = 1, nk
+      do ii = 1, ni_net
+         beta(ii, k) = conc(ii, nk - k + 1)
+      end do
+   end do
+   conc = beta
+
+   colmassa = 0.
+   do i = 1, ni
+      do sp_idx = 1, nsp_diff * nb_bins
+         ii = calc_ii(sp_idx, i, nsp_diff, nb_bins)
+         do k = 2, nk - 1
+            colmassa(i, sp_idx) = colmassa(i, sp_idx) + conc(ii, k) * rho(i, k) * (zh(i, k - 1) - zh(i, k))
+         end do
+!  top
+         colmassa(i, sp_idx) = colmassa(i, sp_idx) + conc(ii, 1) * rho(i, 1) * (zf(i, 1) - zh(i, 1))
+!  bottom
+         colmassa(i, sp_idx) = colmassa(i, sp_idx) + conc(ii, nk) * rho(i, nk) * (zh(i, nk - 1) - zf(i, nk))
+      end do
+   end do
+
+! Mass Conservation enforced: Correct ratio of column masses:
+!
+   do k = 1, nk
+      do i = 1, ni
+         do sp_idx = 1, nsp_diff * nb_bins
+            ii = calc_ii(sp_idx, i, nsp_diff, nb_bins)
+            if(colmassa(i, sp_idx) > 0.0) then
+               conc(ii, k) = conc(ii, k) * colmassb(i, sp_idx) / colmassa(i, sp_idx)
+            end if
+         end do
+      end do
+   end do
+
+!  conc now holds the updated species concentrations
+   if (local_dbg) then
+      write (chm_lun_out, *) "Leaving mach_diff_boundary"
+   end if
+
+   return
+
+   contains
+   integer function calc_ii(sp_idx, i, nsp_diff, nb_bins)
+      integer, intent(in) :: sp_idx, i, nsp_diff, nb_bins
+      calc_ii = sp_idx + (i - 1) * nsp_diff * nb_bins
+   end function calc_ii
+
+end

@@ -1,0 +1,73 @@
+
+!!!!!!!!!!!!!! This subroutine my need to be revised or eleminated under the new GEM 3.3.0 Phy 4.5
+!!!!!!!!!!!!!! Need to talk with Paul Makar about it (sylvain)
+
+!!! No code revision done for now...
+
+
+ subroutine mach_maketend(F_p_ni   , F_chm_ni  , nk    , QI_EXIST, &
+                          HUTEND   , QCTEND    , QRTEND,           &
+                          QITEND   ,                               &
+                          QGTEND   ,                               &
+                          QNTEND   ,                               &
+                          QHTEND   ,                               &
+                          QNET     , QNETTEND  ,                   &
+                          F_busvol , F_bvol_siz, istcond)
+   use chm_utils_mod
+   use chm_phyvar_mod
+
+   implicit none
+!  Arguments
+   integer, intent(in)  :: F_bvol_siz
+   integer, intent(in)  :: F_p_ni    , F_chm_ni, nk
+   integer, intent(in)  :: istcond
+   logical, intent(out) :: qi_exist
+   real,    intent(out) :: hutend   (F_p_ni, nk) , qctend   (F_p_ni, nk), qrtend(F_p_ni, nk)
+   real,    intent(out) :: qitend(F_p_ni, nk)
+   real,    intent(out) :: qgtend(F_p_ni, nk)
+   real,    intent(out) :: qntend   (F_p_ni, nk)
+   real,    intent(out) :: qhtend   (F_p_ni, nk)
+   real,    intent(out) :: qnet     (F_p_ni, nk) , qnettend (F_p_ni, nk)
+   real,    intent(in)  :: F_busvol (F_bvol_siz)
+!
+!   Other (local) variables
+!
+   integer              :: ix, kz
+!
+!  Sum of all hydrometeors, hydrometeor tendencies: (qnet,qnettend)
+!
+   qnet      = 0.0
+   qnettend  = 0.0
+
+   qi_exist=.true.
+
+   do kz = 1, nk
+      do ix=1, F_chm_ni
+         if (huphytd /= 0) hutend(ix, kz) = F_busvol(huphytd + ik(ix, kz))
+         if (istcond == 12) then
+           if (qbphytd /= 0) qctend(ix, kz) = F_busvol(qbphytd + ik(ix, kz))
+         else
+           if (qcphytd /= 0) qctend(ix, kz) = F_busvol(qcphytd + ik(ix, kz))
+         end if 
+         if (qiphytd /= 0) qitend(ix, kz) = F_busvol(qiphytd + ik(ix, kz))
+         if (qrphytd /= 0) qrtend(ix, kz) = F_busvol(qrphytd + ik(ix, kz))
+         if (qgphytd /= 0) qgtend(ix, kz) = F_busvol(qgphytd + ik(ix, kz))
+         if (qhphytd /= 0) qhtend(ix, kz) = F_busvol(qhphytd + ik(ix, kz))
+         if (qnphytd /= 0) qntend(ix, kz) = F_busvol(qnphytd + ik(ix, kz))
+      end do
+   end do
+
+   return
+
+   contains
+
+! Note slab is in i-k direction and consists of ni*nk elements
+! following function converts 2D indexing to 1D array indexing
+      integer function ik(ix, kz)
+         implicit none
+         integer, intent(in) :: ix, kz
+         ik = (kz - 1) * F_chm_ni + (ix - 1)
+      end function ik
+
+
+   end

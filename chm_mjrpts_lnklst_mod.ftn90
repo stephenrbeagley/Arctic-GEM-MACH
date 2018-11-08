@@ -1,0 +1,55 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH (chemical interface)
+! Fichier/File   : chm_mjrpts_lnklst_mod.ftn90
+! Creation       : A. Kallaur October 2007
+!
+! Description    : Linked List data structure used to sore major point source
+!                  emission info.
+!
+! general structure for linked lists of the type:
+!
+!       | f -> real(:)
+!       | vn        (variable name)
+!       | max_f     (maximum value in field f)
+!       | max_f     (minimum value in field f)
+!  ltp->| mean_f    (mean of field f)
+!       | size_f    (number of elements in field f)
+!       | next_p -> (pointer to next node (struct ltp))
+!
+!
+!============================================================================
+!
+!
+module chm_mjrpts_lnklst_mod
+   save
+  type :: ltp
+     character(len=4)           :: var_name
+     real                       :: max_f
+     real                       :: min_f
+     real                       :: mean_f
+     integer                    :: size_f
+     real, dimension(:),pointer :: field
+     type(ltp),pointer          :: next_p
+  end type
+!
+!   declare the head and tail pointers in the list
+!   containing the major point source emissions
+!    head_mjrpts : pointer to the head of the list containing
+!            time dependant maj. pt. src. emission rates
+!    tail_mjrpts : pointer to the tail of the list containing
+!            time dependant maj. pt. src. emission rates
+!
+  type (ltp),pointer :: head_mjrpts, tail_mjrpts
+
+end module chm_mjrpts_lnklst_mod
+
+

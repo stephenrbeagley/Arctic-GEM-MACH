@@ -1,0 +1,136 @@
+! This module defines all the species that will be eventually use in the model
+! One integer per species/fields
+
+
+module chm_species_idx_mod
+   use chm_utils_mod
+   save
+! These variables will be used to access the master array of fields (species or else)
+! Please keep alphabetical order
+
+! Gas indices
+   integer sp_ALD2
+   integer sp_ALKA
+   integer sp_ALKE
+   integer sp_AROM
+   integer sp_BZO
+   integer sp_C3H8
+   integer sp_CO
+   integer sp_CRES
+   integer sp_CRG1
+   integer sp_CRG2
+   integer sp_DIAL
+   integer sp_EBMO
+   integer sp_EBVO
+   integer sp_ETHE
+   integer sp_H2O2
+   integer sp_HCHO
+   integer sp_HNO3
+   integer sp_HNO4
+   integer sp_HO2
+   integer sp_HONO
+   integer sp_ISOP
+   integer sp_MCO3
+   integer sp_MEK
+   integer sp_MGLY
+   integer sp_N2O5
+   integer sp_NH3
+   integer sp_NO
+   integer sp_NO2
+   integer sp_NO3
+   integer sp_NOY
+   integer sp_NWOC
+   integer sp_O
+   integer sp_O3
+   integer sp_OH
+   integer sp_OSD
+   integer sp_PAN
+   integer sp_R2O2
+   integer sp_RNO3
+   integer sp_RO2
+   integer sp_RO2N
+   integer sp_RO2R
+   integer sp_ROOH
+   integer sp_SO4
+   integer sp_TOLU
+   integer sp_SO2
+   integer sp_JNO2
+   integer sp_VOCC
+   integer sp_VOCR
+   integer sp_BRCH
+
+!  Declaration of PM species
+   integer sp_AM
+   integer sp_CM
+   integer sp_EC
+   integer sp_NI
+   integer sp_OC
+   integer sp_PC
+   integer sp_SS
+   integer sp_SU
+   integer sp_WA
+
+   integer sp_AC
+   integer sp_AF
+
+   integer sp_NCRS
+   integer sp_NFIN
+
+!  Accumulated Speciated PM:
+   integer sp_SU01
+   integer sp_OC01
+   integer sp_PC01
+   integer sp_CM01
+   integer sp_EC01
+   integer sp_SS01
+   integer sp_NI01
+   integer sp_AM01
+   integer sp_WA01
+   integer sp_SU25
+   integer sp_OC25
+   integer sp_PC25
+   integer sp_CM25
+   integer sp_EC25
+   integer sp_SS25
+   integer sp_NI25
+   integer sp_AM25
+   integer sp_WA25
+   integer sp_SU10
+   integer sp_OC10
+   integer sp_PC10
+   integer sp_CM10
+   integer sp_EC10
+   integer sp_SS10
+   integer sp_NI10
+   integer sp_AM10
+   integer sp_WA10
+   integer sp_SUT
+   integer sp_OCT
+   integer sp_PCT
+   integer sp_CMT
+   integer sp_ECT
+   integer sp_SST
+   integer sp_NIT
+   integer sp_AMT
+   integer sp_WAT
+
+!  Other fields
+   integer sp_LU15
+   integer sp_SESN
+   integer sp_LAI
+   integer sp_KTN
+   integer sp_RHO
+   integer sp_AQ25
+   integer sp_AQ10
+
+!  Debug fields
+   integer dbg_2D(MAX_DEBUG_VAR)
+   integer dbg_3D(MAX_DEBUG_VAR)
+
+
+end module chm_species_idx_mod
+
+
+
+
+

@@ -1,0 +1,12 @@
+      subroutine mach_perm_transfer(chemdyn,phyper,asize)
+      implicit none
+!  Transfter from chemistry dynamics bus into physics permanent bus
+      integer, intent(in) :: asize
+      real, intent(in) :: chemdyn(asize)
+      real, intent(out) :: phyper(asize)
+      integer i
+       do i = 1,asize
+         phyper(i) = chemdyn(i)
+       end do
+      return
+      end 

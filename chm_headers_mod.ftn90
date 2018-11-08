@@ -1,0 +1,262 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_headers_mod.ftn90
+! Creation       : H. Landry, Mai 2008
+! Description    : Modules defining explicit interfaces for chm s/r
+!
+! Extra info     :
+!
+!============================================================================
+
+
+module chm_headers_mod
+   use chm_utils_mod
+   interface
+
+      subroutine chm_emis_assignfld(nmvr, time1, time2, l_ni, l_nj, &
+                                 CHM_BUSPER3D, chm_bper_len, chm_bper_siz)
+         integer                   time1, time2
+         character(len = NOMV_LEN) nmvr
+         integer                   chm_bper_len, chm_bper_siz
+         real                      chm_busper3D(chm_bper_len)
+         integer                   l_ni, l_nj
+      end subroutine chm_emis_assignfld
+
+      subroutine chm_debu(l_ni     , l_nj       , l_nk, hybm,   indat       ,  &
+                        Ptopo_myrow, Ptopo_mycol, Ptopo_npex  , Ptopo_npey  ,  &
+                        gem_chm_ni , gem_chm_nj , gem_chm_offi, gem_chm_offj,  &
+                        G_ni       , G_nj       , G_nk        ,                &
+                        l_i0       , l_j0       ,                              &
+                        north      , east       , west        , south       ,  &
+                        DIMBUSE    , DIMBUSD    , DIMBUSP     , DIMBUSV     ,  &
+                        Lun_out    , cbk_const  , istcond     , iconvec     ,  &
+                        Cstv_dt_8  , dtime_delay )
+         integer l_ni, l_nj, l_nk, istcond, iconvec
+         integer l_i0, l_j0
+         integer G_ni, G_nj, G_nk
+         integer north, east, west, south
+         integer Lun_out, indat
+         integer gem_chm_ni, gem_chm_nj, gem_chm_offi, gem_chm_offj
+         integer Ptopo_myrow, Ptopo_mycol
+         integer Ptopo_npex , Ptopo_npey
+         integer dimbuse, dimbusd, dimbusp, dimbusv
+         real hybm(l_nk)
+         real*8 Cstv_dt_8
+         real*8 dtime_delay
+      end subroutine chm_debu
+
+      logical function chm_emis_file_inquire(PE_FILE, prefix, bmf_fst)
+         character(len = *) prefix
+         character(len = *) bmf_fst
+         character(len = *) pe_file
+      end function chm_emis_file_inquire
+
+      subroutine chm_exe(F_CHMBUSENT   , F_CHMBUSPER    , F_CHMBUSDYN    , F_CHMBUSVOL     , &
+                   F_chm_bent_siz, F_chm_bdyn_siz , F_chm_bper_siz , F_chm_bvol_siz  , &
+                   F_chm_bdyn_top, F_chm_bper_top , F_chm_bvol_top , F_chm_bent_top  , &
+                   F_busent      , F_busdyn       , F_busper       , F_busvol        , &
+                   F_bent_siz    , F_bdyn_siz     , F_bper_siz     , F_bvol_siz      , &
+                   F_dt          , F_j            , F_step         , F_cpu           , &
+                   F_p_ni        , F_chm_ni       , F_Nk           , F_busdyn_o      , &
+                   istcond       , iconvec   )
+         integer           F_chm_bent_top, F_chm_bdyn_top
+         integer           F_chm_bper_top, F_chm_bvol_top
+         integer           F_chm_bent_siz, F_chm_bdyn_siz
+         integer           F_chm_bper_siz, F_chm_bvol_siz
+         real   , target :: F_chmbusent(F_chm_bent_siz)
+         real   , target :: F_chmbusdyn(F_chm_bdyn_siz)
+         real   , target :: F_chmbusper(F_chm_bper_siz)
+         real   , target :: F_chmbusvol(F_chm_bvol_siz)
+         integer           F_bent_siz, F_bdyn_siz
+         integer           F_bper_siz, F_bvol_siz
+         real   , target :: F_busent  (F_bent_siz)
+         real   , target :: F_busdyn  (F_bdyn_siz)
+         real   , target :: F_busdyn_o(F_bdyn_siz)
+         real   , target :: F_busper  (F_bper_siz)
+         real   , target :: F_busvol  (F_bvol_siz)
+         real              F_dt
+         integer           F_cpu, F_j, F_step, F_p_ni, F_chm_ni, F_Nk
+         integer           istcond, iconvec
+      end subroutine chm_exe
+
+      subroutine chm_fst_closefile(file_unit)
+         integer file_unit
+      end subroutine chm_fst_closefile
+
+      subroutine chm_fst_openfile(FILE_UNIT, file_name, file_type, options)
+         integer           file_unit
+         character(len = *) file_name
+         character(len = *) file_type
+         character(len = *) options
+      end subroutine chm_fst_openfile
+
+      subroutine chm_fst_splitname(PE_FILE, pex, pey, path, prefix, date, hour, min, sec)
+         integer            pex, pey, date, hour, min, sec
+         character(len = 2) prefix
+         character(len = *) path
+         character(len = *) pe_file
+      end subroutine chm_fst_splitname
+
+      subroutine chm_gesdict (n, nk, LINDEX, lachaine, esp)
+         character(len = *) lachaine
+         integer            n, nk
+         integer            lindex, esp
+      end subroutine chm_gesdict
+
+      subroutine chm_emis_getbmf(CHM_BUSPER3D, chm_bper_len,  &
+                                       chm_bper_siz, pe_file, etype)
+         integer             chm_bper_len, chm_bper_siz
+         character (len = *) etype
+         character (len = *) pe_file
+         real                chm_busper3D(chm_bper_len)
+      end subroutine chm_emis_getbmf
+
+      subroutine chm_getbus(NM, ON, DESC, PARA, ESP, n, bus, do_output)
+         integer             n
+         character (len = 1) bus
+         logical             do_output
+         character (len = *) nm(n), desc(n), on(n)
+         integer             para(n, 7), esp
+      end subroutine chm_getbus
+
+      subroutine chm_getphybus_struct(geti_p2c, istcond, iconvec)
+         logical  geti_p2c
+         external geti_p2c
+         integer istcond, iconvec
+      end subroutine chm_getphybus_struct
+
+      logical function chm_inctphychm (call_back)
+         logical  call_back
+         external call_back
+      end function chm_inctphychm
+
+      subroutine chm_ini (in_nk, in_F_chm_ni)
+         integer in_nk, in_F_chm_ni
+      end subroutine chm_ini
+
+      subroutine chm_load_emissions (CHM_BUSPER3D, chm_bper_siz, chm_bper_len, &
+                                    gem_datimeo, gem_dt_8, gem_tstep_num)
+         integer gem_datimeo
+         integer gem_tstep_num
+         integer chm_bper_siz, chm_bper_len
+         real    chm_busper3D(chm_bper_len)
+         real*8  gem_dt_8
+      end subroutine chm_load_emissions
+
+      subroutine chm_mjrpts_assign_fld(vrnmin, fin, ns)
+         integer                ns
+         character(len=*)       vrnmin
+         real, dimension(ns) :: fin
+      end subroutine chm_mjrpts_assign_fld
+
+      subroutine chm_mjrpts_fstread(FIELD, iun, var, ip2, nb_sources)
+         integer nb_sources, iun, ip2
+         character (len=*) var
+         real field(nb_sources)
+      end subroutine chm_mjrpts_fstread
+
+      subroutine chm_mjrpts_get_emissions(gem_tstep_num, pe_file, etype)
+         integer             gem_tstep_num
+         character (len = *) pe_file
+         character (len = *) etype
+      end subroutine chm_mjrpts_get_emissions
+
+      subroutine chm_mjrpts_get_llnode(FOUT, flen, fname)
+         integer          flen
+         real             fout(flen)
+         character(len=*) fname
+      end subroutine chm_mjrpts_get_llnode
+
+      subroutine chm_mjrpts_get_stkinfo(pe_file, etype, numsrcs_l)
+         character(len = *) pe_file
+         character(len = *) etype
+         logical       numsrcs_l
+      end subroutine chm_mjrpts_get_stkinfo
+
+      subroutine chm_mjrpts_mask(fin, ns, grdpt_type)
+         integer ns
+         real    fin(ns)
+         character (len = *) grdpt_type
+      end subroutine chm_mjrpts_mask
+
+      subroutine chm_mjrpts_printlist( )
+      end subroutine chm_mjrpts_printlist
+
+      subroutine chm_mjrpts_proc( )
+      end subroutine chm_mjrpts_proc
+
+      subroutine chm_mjrpts_rearrange(mode, nb_nomvar)
+         character(len=*) mode
+         integer          nb_nomvar
+      end subroutine chm_mjrpts_rearrange
+
+      subroutine chm_mjrpts_translate(fin, ns, grdpt_type)
+         integer            ns
+         real               fin(ns)
+         character(len = *) grdpt_type
+      end subroutine chm_mjrpts_translate
+
+      subroutine chm_mjrpts_trim(mask, fin, nsin, fout, nsout)
+         integer nsin, nsout
+         real    fin(nsin)
+         real    fout(nsout)
+         logical mask(nsin)
+      end subroutine chm_mjrpts_trim
+
+      subroutine chm_mjrpts_xref_sortlist( )
+      end subroutine chm_mjrpts_xref_sortlist
+
+      logical function chm_pkg_fields_init(chm_pkg_gas_s, chm_pkg_pm_s, chm_debug_2d_i, chm_debug_3d_i)
+         character(len = *) chm_pkg_pm_s, chm_pkg_gas_s
+         integer, optional :: chm_debug_2d_i, chm_debug_3d_i
+      end function chm_pkg_fields_init
+
+      subroutine chm_plumerise_prep ( )
+      end subroutine chm_plumerise_prep
+
+      subroutine chm_put2perbus(field, l_ninj, CHM_BUSPER3D, chm_bper_len, chm_bper_siz, nmvr)
+         character(len = 4) nmvr
+         integer          l_ninj, chm_bper_len, chm_bper_siz
+         real             field(l_ninj)
+         real             chm_busper3D(chm_bper_len)
+      end subroutine chm_put2perbus
+
+      recursive subroutine chm_q_sort (X, Y, l, r)
+         integer l, r
+         real    x(r)
+         integer y(r)
+      end subroutine chm_q_sort
+
+      integer function chm_read_nml(fn, OUT_CHM_MODEL_L, OUT_CHM_BC_PROF_L, lun_out)
+         character(len = *) fn
+         logical       out_chm_model_L, out_chm_bc_prof_l
+         integer       lun_out
+      end function chm_read_nml
+
+      subroutine chm_splitst (cvn, con, cvd1, cvd2, cvs, fadd, fmul, cvb, dynini, &
+                              stagg, string)
+         character(len = *) string
+         character(len = *) con, cvn, cvd1, cvd2, cvb
+         character(len = 3) cvs
+         integer           fadd, fmul, dynini, stagg
+      end subroutine chm_splitst
+
+   end interface
+end module chm_headers_mod
+
+
+
+
+
+
+
+

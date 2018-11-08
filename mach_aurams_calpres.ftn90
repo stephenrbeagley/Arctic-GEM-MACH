@@ -1,0 +1,48 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_aurams_calpres.ftn90
+! Creation       : S. Menard, W. Gong, S. Gravel, GEM-MACH, July 2008
+! Description    : Compute atmospheric pressure
+!
+! Extra info     :
+!
+! Arguments  IN
+!                roarow   -->  air density (kg/m3)
+!                temp     -->  air temperature (k)
+!                F_chm_ni -->  grid size in x
+!                ilev     -->  number of vertical levels
+!
+!            OUT
+!                 pres    -->  pressure (mb))
+!
+!=============================================================================
+
+subroutine mach_aurams_calpres (pres, roarow, temp, F_chm_ni, ilev)
+   use chm_consphychm_mod, only: rgasd
+   implicit none
+
+
+   integer, intent(in)                        :: F_chm_ni, ilev
+   real,    intent(in),  dimension(F_chm_ni, ilev) :: roarow, temp
+   real,    intent(out), dimension(F_chm_ni, ilev) :: pres
+
+!  local variables
+   integer :: kk, ii
+
+   do kk = 1, ilev
+      do ii = 1, F_chm_ni
+         pres(ii, kk) = (roarow(ii, kk) * rgasd * temp(ii, kk)) * 0.01
+      end do
+   end do
+
+return
+end

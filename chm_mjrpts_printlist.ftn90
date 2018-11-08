@@ -1,0 +1,55 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_printlist.ftn90
+! Creation       : A. Kallaur - May 2007
+! Description    : Transfer information read on (l_nixl_nj) grid to
+!                 "slabbed(rowed)" chem. bus space.
+!
+! Extra info     :
+!
+!==============================================================================
+
+subroutine chm_mjrpts_printlist( )
+   use chm_utils_mod
+   use chm_mjrpts_lnklst_mod
+   implicit none
+
+! Declaration of local variables
+
+   integer             :: i
+   integer             :: istat
+   type (ltp), pointer :: new_mjrpts, current_mjrpts
+
+
+   if (.not. associated(head_mjrpts)) then
+      write(chm_lun_out, *) 'ERROR: UNEXPECTED EMPTY MAJOR POINT SOURCE LIST'
+      call chm_stop('chm_mjrpts_printlist', -1)
+   endif
+   current_mjrpts => head_mjrpts
+!
+   write(chm_lun_out, *) ' '
+   write(chm_lun_out, *) 'Printing information on Major point source linked list'
+   do
+      write(chm_lun_out, *) ' '
+      write(chm_lun_out, *) 'Field name   : ', current_mjrpts%var_name
+      write(chm_lun_out, *) 'f(1), f(ns)   : ', current_mjrpts%field(1), current_mjrpts%field(current_mjrpts%size_f)
+      write(chm_lun_out, *) 'min, max, mean : ', current_mjrpts%min_f, current_mjrpts%max_f, current_mjrpts%mean_f
+      if (.not. associated(current_mjrpts%next_p)) then
+         write(chm_lun_out, *) 'Reached end of list -> exiting chm_mjrpts_printlist'
+         exit
+      else
+         current_mjrpts => current_mjrpts%next_p
+      endif
+   enddo
+
+   return
+end subroutine chm_mjrpts_printlist

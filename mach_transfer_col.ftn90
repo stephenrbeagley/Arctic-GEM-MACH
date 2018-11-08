@@ -1,0 +1,50 @@
+! Adds results of last six arrays to first six arrays 
+!
+
+      subroutine mach_transfer_col(ni,&
+                                   se_NO,    se_NO2,   &
+                                   se_SO2,   se_CO,    &
+                                   se_NH3,   se_bNO,   &
+                                   se_ETHE,  se_TOLU,  &
+                                   se_HCHO,  se_ISOPA, &
+                                   se_ISOPB, se_MONO,  &
+                                   se_OVOC,  se_PM2P5, &
+                                   se_PM10, &
+                                   sesNO,    sesNO2,   &
+                                   sesSO2,   sesCO,    &
+                                   sesNH3,   sesbNO,   &
+                                   sesETHE,  sesTOLU,  &
+                                   sesHCHO,  sesISOPA, &
+                                   sesISOPB, sesMONO,  &
+                                   sesOVOC, sesPM2P5,  &
+                                   sesPM10)
+      implicit none
+      integer :: ni, i
+      real, dimension(ni) :: se_NO,se_NO2,se_SO2,se_CO,se_NH3,se_bNO
+      real, dimension(ni) :: se_ETHE, se_TOLU, se_HCHO, se_ISOPA
+      real, dimension(ni) :: se_ISOPB, se_MONO, se_OVOC
+      real, dimension(ni) :: se_PM2P5, se_PM10
+      real, dimension(ni) :: sesNO,sesNO2,sesSO2,sesCO,sesNH3,sesbNO
+      real, dimension(ni) :: sesETHE, sesTOLU, sesHCHO, sesISOPA
+      real, dimension(ni) :: sesISOPB, sesMONO, sesOVOC
+      real, dimension(ni) :: sesPM2P5, sesPM10
+!
+      do i = 1,ni
+        se_NO(i)  = se_NO(i)  + sesNO(i)
+        se_NO2(i) = se_NO2(i) + sesNO2(i)
+        se_SO2(i) = se_SO2(i) + sesSO2(i)
+        se_CO(i)  = se_CO(i)  + sesCO(i)
+        se_NH3(i) = se_NH3(i) + sesNH3(i)
+        se_bNO(i) = se_bNO(i) + sesbNO(i)
+        se_ETHE(i) = se_ETHE(i) + sesETHE(i)
+        se_TOLU(i) = se_TOLU(i) + sesTOLU(i)
+        se_HCHO(i) = se_HCHO(i) + sesHCHO(i)
+        se_ISOPA(i) = se_ISOPA(i) + sesISOPA(i)
+        se_ISOPB(i) = se_ISOPB(i) + sesISOPB(i)
+        se_MONO(i) = se_MONO(i) + sesMONO(i)
+        se_OVOC(i) = se_OVOC(i) + sesOVOC(i)
+        se_PM2P5(i) = se_PM2P5(i) + sesPM2P5(i)
+        se_PM10(i) = se_PM10(i) + sesPM10(i)
+      end do
+      return
+      end

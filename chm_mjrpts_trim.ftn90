@@ -1,0 +1,69 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_trim.ftn90
+! Creation       : A. Kallaur - July 2007
+! Description    : Perform transfer and "trim" for major point source arrays.
+!
+! Extra info     :
+!
+! Arguments: IN
+!              mask      --> Array containing status of each point source
+!                            (rejected or included) as related to "fin".
+!              fin       --> Array of local grid point locations to be scanned.
+!              nsin      --> size of fin (single dimension).
+!              fout      --> Trinned array.
+!              nsout     --> Size of trimmed array.
+!
+!==============================================================================
+subroutine chm_mjrpts_trim(mask,fin,nsin,fout,nsout)
+   use chm_utils_mod
+   use chm_ptopo_grid_mod
+   implicit  none
+
+   integer,       intent(in)  :: nsin,nsout
+   real,          intent(in)  :: fin(nsin)
+   real,          intent(out) :: fout(nsout)
+   logical,       intent(in)  :: mask(nsin)
+
+!
+!  Local variables
+!
+   integer  :: i,iof
+   real     :: offset
+
+   iof = 0
+   do i=1,nsin
+      if (iof > nsout) then
+         write(chm_lun_out,*) '#####################################'
+         write(chm_lun_out,*) '#  Number of valid maj pnt srcs     #'
+         write(chm_lun_out,*) '#  Exceeds size of receiving array  #'
+         write(chm_lun_out,*) '#  size expected : ',nsout
+         call chm_stop('chm_mjrpts_trim',-1)
+      endif
+      if (mask(i)) then
+         iof       = iof + 1
+         fout(iof) = fin(i)
+      endif
+   enddo
+
+
+   if (iof /= nsout) then
+         write(chm_lun_out,*) '#####################################'
+         write(chm_lun_out,*) '#  Mismatch between kounted points  #'
+         write(chm_lun_out,*) '#  and expected size                #'
+         write(chm_lun_out,*) '#  kounted points : ',iof
+         write(chm_lun_out,*) '#  size expected  : ',nsout
+         call chm_stop('chm_mjrpts_trim',-1)
+   endif
+
+   return
+end subroutine chm_mjrpts_trim

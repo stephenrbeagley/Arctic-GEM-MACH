@@ -1,0 +1,89 @@
+
+
+
+module mach_pkg_misc_mod
+   use chm_utils_mod
+   use chm_species_idx_mod
+   use chm_species_info_mod
+
+   save
+
+   contains
+!============================================================================
+! Name           : pkg_misc_idxinit
+!
+! Description    : Initialize the indices of miscelaneous fields.  Starts with
+!                  the index passed as a dummy argument.
+!
+! Arguments:  IN/OUT
+!                idx  -> index to start from
+!============================================================================
+      integer function pkg_misc_idxinit(idx)
+         implicit none
+
+         integer, intent(inout) :: idx ! the index from where to start
+
+         integer start_index, nb_fields
+
+         start_index = idx
+
+         sp_SESN = pre_increment(idx)
+         sp_LU15 = pre_increment(idx)
+         sp_LAI  = pre_increment(idx)
+         sp_KTN  = pre_increment(idx)
+         sp_RHO  = pre_increment(idx)
+         sp_AQ25 = pre_increment(idx)
+         sp_AQ10 = pre_increment(idx)
+
+         nb_fields = idx - start_index
+         pkg_misc_idxinit = nb_fields
+
+      end function pkg_misc_idxinit
+
+!============================================================================
+! Name           : pkg_misc_metainit
+!
+! Description    : Initialize the meta information for each species
+!
+! Arguments:  None
+!============================================================================
+      subroutine pkg_misc_metainit()
+         implicit none
+
+         species_master(sp_SESN) % per_name   =  "SESN"
+         species_master(sp_SESN) % per_lname  =  "DV_SEASONS"
+         species_master(sp_SESN) % per_string =  "VN=DV_SEASONS; ON=SESN; VD=Seasonal categories for dry dep; VS=row;VB=p0"
+
+         species_master(sp_LU15) % per_name   =  "LU15"
+         species_master(sp_LU15) % per_lname  =  "land_use_15"
+         species_master(sp_LU15) % per_string =  "VN=land_use_15; ON=LU15; VD=15 category land use for dry dep; VS=ROW*15;VB=p0"
+         species_master(sp_LU15) % ra_name    =  "LURA"
+         species_master(sp_LU15) % ra_lname   =  "AERO_RESIST"
+         species_master(sp_LU15) % ra_string  =  "VN=AREO_RESIST; ON=LURA; VD=aerodynamic resistance (s/m); VS=ROW*15;VB=v1"
+
+
+         species_master(sp_LAI) % per_name    =  "LAI"
+         species_master(sp_LAI) % per_lname   =  "LAI_per_std"
+         species_master(sp_LAI) % per_string  =  "VN=LAI_per_std; ON=LAI; VD=Leaf Area index for BEIS3; VS=ROW;VB=p0"
+
+         species_master(sp_KTN) % vol_name    =  "KTN"
+         species_master(sp_KTN) % vol_lname   =  "KTN_vol_std"
+         species_master(sp_KTN) % vol_string  =  "VN=KTN_vol_std; ON=KTN; VD=KT new for vert diff; VS=SLB;VB=v0"
+
+         species_master(sp_RHO) % vol_name    =  "RHO"
+         species_master(sp_RHO) % vol_lname   =  "RHO_vol_std"
+         species_master(sp_RHO) % vol_string  =  "VN=RHO_vol_std; ON=RHO; VD= Air denisty (kg/m3); VS=SLB;VB=v0"
+
+         species_master(sp_AQ25) % out_name    =  "AQ25"
+         species_master(sp_AQ25) % out_lname   =  "AQ25_vol_std"
+         species_master(sp_AQ25) % out_string  =  "VN=AQ25_vol_std; ON=AQ25; VD= Air Quality index 2.5 ; VS=SLB;VB=v0"
+
+         species_master(sp_AQ10) % out_name    =  "AQ10"
+         species_master(sp_AQ10) % out_lname   =  "AQ10_vol_std"
+         species_master(sp_AQ10) % out_string  =  "VN=AQ10_vol_std; ON=AQ10; VD= Air Quality index 10.0; VS=SLB;VB=v0"
+
+      end subroutine pkg_misc_metainit
+
+
+end module mach_pkg_misc_mod
+

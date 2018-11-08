@@ -1,0 +1,69 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_fstread.ftn90
+! Creation       : H. Landry & A. Kallaur - Mars 2007
+! Description    : Read a major point source from an opened fst file for
+!                  a specified hour (ip2)
+!
+! Extra info     :
+!
+! Arguments: IN
+!              iun        --> File unit of an opened fst majorpoint file
+!              var        --> Name of the variable (species) to read
+!              ip2        --> Hour to read
+!              nb_sources --> number of sources per field (for array size)
+!              lout       --> file unit number for diagnostic messages
+!            OUT
+!              field      --> Where the data will be put
+!
+!==============================================================================
+subroutine chm_mjrpts_fstread(FIELD, iun, var, ip2, nb_sources)
+   use chm_utils_mod
+
+   implicit none
+
+! Subroutine parameters
+   integer, intent(in) :: nb_sources
+   integer, intent(in) :: iun
+   integer, intent(in) :: ip2
+   character (len=*), intent(in) :: var
+   real, intent(out) :: field(nb_sources)
+
+! Internal variables
+   integer key, ni, nj, nk
+
+   integer  fstlir
+   external fstlir
+
+   field(1:nb_sources) = 0.0
+
+   key = fstlir(field, iun, ni, nj, nk, -1, ' ', -1, ip2, -1, ' ', var)
+   if (key < 0) then
+      write(0, *) '### Error in chm_mjrpts_fstread ###'
+      write(0, *) '#  Record not found '
+      write(0, *) '#  var   =', var
+      write(0, *) '#  key   =', key
+      write(0, *) '#  Field =', field
+      write(0, *) '#  ip2   =', ip2
+      write(0, *) '#  Program abnormally terminated '
+      write(0, *) '###           ABORT            ###'
+      call chm_stop('chm_mjrpts_fstread', -1)
+   endif
+   if (ni /= nb_sources) then
+      write(0, *) '### Error in chm_mjrpts_fstread ###'
+      write(0, *) '# Size -> ', ni, ' <- read for field ', var
+      write(0, *) '# Does NOT match expected number of sources: ', nb_sources
+      write(0, *) '###          ABORT             ###'
+      call chm_stop('chm_mjrpts_fstread', -1)
+   end if
+   return
+end subroutine chm_mjrpts_fstread

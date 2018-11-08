@@ -1,0 +1,138 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project  : GEM-MACH
+! Fichier/File    : chm_assign_mjrpts_fld.ftn90
+! Creation        : A. Kallaur, H. Landry, S. Menard - mars 2007
+! Description     : Transfer field fin into appropriate element
+!                   of list structure (create & insert, if necessary)
+!                   for major point sources.
+!
+! Extra info      :
+!
+! Arguments:
+!            IN
+!              vrmin -->  Key of field (char*4)
+!              fin   -->  Vector to be transfered
+!              ns    -->  Size of vector(fin) for current step
+!
+!==============================================================================
+!
+subroutine chm_mjrpts_assign_fld(vrnmin, fin, ns)
+   use chm_utils_mod
+   use chm_nml_mod
+   use chm_mjrpts_lnklst_mod
+   implicit none
+!
+! Included data structures and common decks, as well as external functions
+!
+
+   integer  longueur
+   external longueur
+!
+! Declaraton of subroutine arguments
+!
+   integer,             intent(in) :: ns
+   character(len=*),    intent(in) :: vrnmin
+   real, dimension(ns), intent(in) :: fin
+!
+! Declaration of local variables
+!
+   integer             :: istat
+   logical             :: local_dbg
+   type (ltp), pointer :: new_mjrpts, current_mjrpts
+   real, dimension(nb_sources_max), intent(in) :: fin_local
+   integer             :: i
+!
+!--------------------------------------------------------------------------
+!
+   local_dbg = (.false. .or. global_debug)
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Inside chm_assign_mjrpts_fld:'
+   end if
+   fin_local = 0.0
+   do i = 1,ns
+      fin_local(i) = fin(i)
+   end do
+!
+! In the case the list does not yet exist, allocate head pointer structure
+! and load it with appropriate data.
+!
+   if (.not. associated(head_mjrpts)) then
+      allocate    (head_mjrpts, stat=istat)
+      allocate    (head_mjrpts%field(nb_sources_max))
+      head_mjrpts%var_name  = vrnmin(1:longueur(vrnmin))
+      head_mjrpts%field     = fin_local
+      head_mjrpts%size_f    = nb_sources_max
+      head_mjrpts%max_f     = maxval(fin)
+      head_mjrpts%min_f     = minval(fin)
+      head_mjrpts%mean_f    = sum(fin)/real(ns)
+      tail_mjrpts          => head_mjrpts
+      nullify    (tail_mjrpts%next_p)
+      if (local_dbg) then
+         write(chm_lun_out, *) 'List found empty -> Added: ', head_mjrpts%var_name
+         write(chm_lun_out, *) 'f(1), f(ns)               : ', head_mjrpts%field(1), head_mjrpts%field(ns)
+         write(chm_lun_out, *) 'size, min, max, mean        : ', head_mjrpts%size_f, head_mjrpts%max_f, head_mjrpts%min_f, head_mjrpts%mean_f
+      endif
+      return
+   endif
+!
+! Case where there exists a list. Search through it, and try to find
+! the node where (travelingpointer)%var_name = vrnmin.
+! If found, then load contents of fin into travelingpointer)%field
+! else, add new node at the tail of the list, and load appropriate contents.
+!
+   current_mjrpts => head_mjrpts
+   do
+      if (.not. associated(current_mjrpts%next_p)) then
+         allocate (new_mjrpts, stat = istat)
+         allocate (new_mjrpts%field(nb_sources_max))
+         new_mjrpts%var_name =  vrnmin(1:longueur(vrnmin))
+         new_mjrpts%field    =  fin_local
+         new_mjrpts%size_f   =  nb_sources_max
+         new_mjrpts%max_f    =  maxval(fin)
+         new_mjrpts%min_f    =  minval(fin)
+         new_mjrpts%mean_f   =  sum(fin)/real(ns)
+         nullify     (new_mjrpts%next_p)
+         current_mjrpts%next_p => new_mjrpts
+         tail_mjrpts           => new_mjrpts
+         if (local_dbg) then
+            write(chm_lun_out, *) 'Tail of list, added specie: ', tail_mjrpts%var_name
+            write(chm_lun_out, *) 'f(1), f(ns)               : ', tail_mjrpts%field(1), tail_mjrpts%field(ns)
+            write(chm_lun_out, *) 'size, min, max, mean      : ', tail_mjrpts%size_f, tail_mjrpts%max_f, tail_mjrpts%min_f, tail_mjrpts%mean_f
+         endif
+         exit
+      else
+         if (local_dbg) then
+            write(chm_lun_out, *) 'pointing to: ', current_mjrpts%var_name, ' values:', current_mjrpts%field(1), current_mjrpts%field(ns)
+         end if
+         if (current_mjrpts%var_name == vrnmin) then
+            if (local_dbg) then
+               write(chm_lun_out, *) 'Specie ', current_mjrpts%var_name, '  found, loading data'
+            end if
+            current_mjrpts%field  = fin_local
+            current_mjrpts%size_f = nb_sources_max
+            current_mjrpts%max_f  = maxval(fin)
+            current_mjrpts%min_f  = minval(fin)
+            current_mjrpts%mean_f = sum(fin)/real(ns)
+            if (local_dbg) then
+               write(chm_lun_out, *) 'Fields stats(n, min, max, mean) = ', current_mjrpts%size_f, current_mjrpts%min_f, current_mjrpts%max_f, current_mjrpts%mean_f
+            end if
+            exit
+         else
+            current_mjrpts => current_mjrpts%next_p
+         endif
+      endif
+   enddo
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Exiting chm_assign_mjrpts_fld:'
+   end if
+   return
+end

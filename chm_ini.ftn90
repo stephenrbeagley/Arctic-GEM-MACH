@@ -1,0 +1,249 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_ini.ftn90
+! Creation       : H. Landry (Janvier 2008)
+! Description    : Initialize chemistry buses by calling chm_gesdict for
+!                  any declared field in the master array of species
+!
+! Extar info     : This s/r should remain independant of any chemical scheme,
+!                  package, emissions or else
+!
+! Arguments: IN
+!              in_F_chm_ni --> horizontal dimension
+!              in_nk       --> vertical dimension
+!
+!==============================================================================
+
+subroutine chm_ini (in_nk, in_F_chm_ni)
+   use chm_utils_mod
+   use chm_species_info_mod
+   use chm_headers_mod, only: chm_gesdict
+   implicit none
+
+   integer, intent(in) :: in_nk, in_F_chm_ni
+
+   logical local_dbg
+   integer i, bin_nb
+
+   local_dbg = (.false. .or. global_debug)
+
+   if(local_dbg) then
+      write (chm_lun_out, *) "Entering chm_ini"
+      call print_all_species_info()
+   end if
+
+   species_master(1:nb_species) % ni = in_F_chm_ni
+   species_master(1:nb_species) % nk = in_nk
+   do i = 1, nb_species
+      if(local_dbg) then
+         write (chm_lun_out, *) "Species Index: ", i
+      end if
+      if (species_master(i) % nb_bins <= 1) then
+         if (species_master(i) % dyn_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,         &
+                             species_master(i) % nk,         &
+                             species_master(i) % DYN_OFFSET, &
+                             species_master(i) % dyn_string, &
+                             species_master(i) % dyn_size     )
+         end if
+
+         if (species_master(i) % out_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,         &
+                             species_master(i) % nk,         &
+                             species_master(i) % OUT_OFFSET, &
+                             species_master(i) % out_string, &
+                             species_master(i) % out_size     )
+         end if
+
+         if (species_master(i) % per_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,         &
+                             species_master(i) % nk,         &
+                             species_master(i) % PER_OFFSET, &
+                             species_master(i) % per_string, &
+                             species_master(i) % per_size     )
+         end if
+
+         if (species_master(i) % vol_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,         &
+                             species_master(i) % nk,         &
+                             species_master(i) % VOL_OFFSET, &
+                             species_master(i) % vol_string, &
+                             species_master(i) % vol_size     )
+         end if
+
+         if (species_master(i) % ae_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,        &
+                             species_master(i) % nk,        &
+                             species_master(i) % AE_OFFSET, &
+                             species_master(i) % ae_string, &
+                             species_master(i) % ae_size     )
+         end if
+
+         if (species_master(i) % be_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,        &
+                             species_master(i) % nk,        &
+                             species_master(i) % BE_OFFSET, &
+                             species_master(i) % be_string, &
+                             species_master(i) % be_size     )
+         end if
+!
+         if (species_master(i) % bse_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,        &
+                             species_master(i) % nk,        &
+                             species_master(i) % BSE_OFFSET, &
+                             species_master(i) % bse_string, &
+                             species_master(i) % bse_size     )
+         end if
+
+
+         if (species_master(i) % bwe_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,        &
+                             species_master(i) % nk,        &
+                             species_master(i) % BWE_OFFSET, &
+                             species_master(i) % bwe_string, &
+                             species_master(i) % bwe_size     )
+         end if
+
+         if (species_master(i) % vd_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,        &
+                             species_master(i) % nk,        &
+                             species_master(i) % VD_OFFSET, &
+                             species_master(i) % vd_string, &
+                             species_master(i) % vd_size     )
+         end if
+
+         if (species_master(i) % ra_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,        &
+                             species_master(i) % nk,        &
+                             species_master(i) % RA_OFFSET, &
+                             species_master(i) % ra_string, &
+                             species_master(i) % ra_size     )
+         end if
+
+         if (species_master(i) % rb_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,        &
+                             species_master(i) % nk,        &
+                             species_master(i) % RB_OFFSET, &
+                             species_master(i) % rb_string, &
+                             species_master(i) % rb_size     )
+         end if
+
+         if (species_master(i) % rc_name /= UNASSIGNED) then
+            call chm_gesdict(species_master(i) % ni,        &
+                             species_master(i) % nk,        &
+                             species_master(i) % RC_OFFSET, &
+                             species_master(i) % rc_string, &
+                             species_master(i) % rc_size     )
+         end if
+      else
+         do bin_nb = 1, species_master(i) % nb_bins
+            if (species_master(i) % bins_array(bin_nb) % dyn_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,         &
+                                species_master(i) % nk,         &
+                                species_master(i) % bins_array(bin_nb) % DYN_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % dyn_string, &
+                                species_master(i) % bins_array(bin_nb) % dyn_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % out_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,         &
+                                species_master(i) % nk,         &
+                                species_master(i) % bins_array(bin_nb) % OUT_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % out_string, &
+                                species_master(i) % bins_array(bin_nb) % out_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % per_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,         &
+                                species_master(i) % nk,         &
+                                species_master(i) % bins_array(bin_nb) % PER_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % per_string, &
+                                species_master(i) % bins_array(bin_nb) % per_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % vol_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,         &
+                                species_master(i) % nk,         &
+                                species_master(i) % bins_array(bin_nb) % VOL_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % vol_string, &
+                                species_master(i) % bins_array(bin_nb) % vol_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % ae_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,        &
+                                species_master(i) % nk,        &
+                                species_master(i) % bins_array(bin_nb) % AE_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % ae_string, &
+                                species_master(i) % bins_array(bin_nb) % ae_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % be_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,        &
+                                species_master(i) % nk,        &
+                                species_master(i) % bins_array(bin_nb) % BE_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % be_string, &
+                                species_master(i) % bins_array(bin_nb) % be_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % bse_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,        &
+                                species_master(i) % nk,        &
+                                species_master(i) % bins_array(bin_nb) % BSE_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % bse_string, &
+                                species_master(i) % bins_array(bin_nb) % bse_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % bwe_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,        &
+                                species_master(i) % nk,        &
+                                species_master(i) % bins_array(bin_nb) % BWE_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % bwe_string, &
+                                species_master(i) % bins_array(bin_nb) % bwe_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % vd_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,        &
+                                species_master(i) % nk,        &
+                                species_master(i) % bins_array(bin_nb) % VD_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % vd_string, &
+                                species_master(i) % bins_array(bin_nb) % vd_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % ra_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,        &
+                                species_master(i) % nk,        &
+                                species_master(i) % bins_array(bin_nb) % RA_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % ra_string, &
+                                species_master(i) % bins_array(bin_nb) % ra_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % rb_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,        &
+                                species_master(i) % nk,        &
+                                species_master(i) % bins_array(bin_nb) % RB_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % rb_string, &
+                                species_master(i) % bins_array(bin_nb) % rb_size     )
+            end if
+
+            if (species_master(i) % bins_array(bin_nb) % rc_name /= UNASSIGNED) then
+               call chm_gesdict(species_master(i) % ni,        &
+                                species_master(i) % nk,        &
+                                species_master(i) % bins_array(bin_nb) % RC_OFFSET, &
+                                species_master(i) % bins_array(bin_nb) % rc_string, &
+                                species_master(i) % bins_array(bin_nb) % rc_size     )
+            end if
+         end do ! on nb_bins
+      end if
+
+   end do ! on nb_species
+   return
+end

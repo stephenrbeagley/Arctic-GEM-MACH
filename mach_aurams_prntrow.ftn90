@@ -1,0 +1,80 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_aurams_prntrow.ftn90
+! Creation       : M. Lazare, S.Gravel, GEM-MACH, July 2008
+! Description    : Prints out row values (between il1 and il2) of array fld,
+!                  for each of nlev levels at "jlat" latitude row inside routine.
+!
+! Extra info     :
+!
+! Arguments  IN
+!              fld      --> array to be printed out.
+!              name     --> name of array to be included in printout,
+!                           i.e. "th" for throw.
+!              loc      --> location where printout is occurring, i.e.
+!                           "after vrtdfs".
+!                           being displayed.
+!              nlev     --> number of levels for variable.
+!              loff     --> number of levels (including moon layer) before
+!                           variable has values, i.e. loff=msg+1 for estg,
+!                           loff=0 for throw, loff=1 for urow. for single-
+!                           level fields, some level indicator (i.e. could be
+!                           done in a vertical level loop).
+!                           moon layer referenced to as level "0" in printout.
+!              F_chm_ni --> number of equally-spaced longitudes to be printed out.
+!              il1      --> starting longitude number for printout.
+!              il2      --> finishing longitude number for printout.
+!              jlat     --> current latitude row for printout.
+!
+!            OUT
+!
+!=============================================================================
+
+subroutine mach_aurams_prntrow (fld, name, loc, nlev, loff, F_chm_ni, il1, il2, jlat)
+   use chm_utils_mod
+
+   implicit none
+
+   integer, intent(in) :: nlev, F_chm_ni
+   integer, intent(in) :: loff, il1, il2, jlat
+   real,    intent(in) :: fld(F_chm_ni, nlev)
+   character (len=14), intent(in) :: loc
+   character (len=7),  intent(in) :: name
+!local varialbes
+   integer :: il, lind, l
+   logical local_dbg
+
+   local_dbg = (.false. .or. global_debug)
+
+!  distinguish between single-level and multi-level fields.
+   if (nlev == 1) then
+      if(local_dbg) then
+         write(chm_lun_out, 6100)loc, loff, name, jlat, (fld(il, 1), il = il1, il2)
+      end if
+ 6100 format ('0', a14, ', level', i3, ' for variable ', a7, ' at latitude row', i3, ' :', /, (5(1x, 1pe24.16)))
+   else
+      lind = loff - 1
+      if(local_dbg) then
+         write(chm_lun_out, 6200)
+      end if
+ 6200 format ('1')
+      do l = 1, nlev
+         if(local_dbg) then
+            write(chm_lun_out, 6300)loc, l + lind, name, jlat, (fld(il, l), il = il1, il2)
+         end if
+ 6300    format ('0', a14, ', level', i3, ' for variable ', a7, ' at latitude row', i3, ' :', /, (5(1x, 1pe24.16)))
+  200   continue
+      end do
+   end if
+
+return
+end

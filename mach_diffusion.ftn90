@@ -1,0 +1,292 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_diffusion.ftn90
+! Creation       : Paul Makar, Sylvie Gravel, Nov 2007
+! Description    : Master subroutine for GEM-MACH vertical diffusion
+!                  Finite differences are used to solve the diffusion equation, one-step backward
+!                  difference in time (i.e. fully implicit), and 1st to second order in space,
+!                  depending on the method chosen.  The interior rows (k = 2..NK-1) of the
+!                  matrix system use second order finite differences, resulting in a tridiagonal
+!                  system of equations.  There are 4 approached implemented, triggered by bc_type
+!                  (see bc_type's description below)
+!
+! Extra info     : The method is described in detail in
+!                  http://ulysse.cmc.ec.gc.ca/svn/gem-mach/doc/Vertical_diffusion_in_CHRONOS_AURAMS_and_GEM-MACH.doc
+!
+! Arguments:
+!           IN
+!              kt                -> Thermal vertical diffusion coefficient
+!              rho               -> Air Density
+!              area              -> Area of grid square
+!              zf                -> Concentration layer height above sea-level
+!              zh                -> DIffusion constant height above sea level
+!              dt                -> Chemistry timestep
+!              f_chm_ni          -> No. x-direction (W-E) gridpoints
+!              nk                -> Number of vertical levels
+!              diffused_species  -> List of species to be diffused
+!              nsp_diff          -> Number of diffused species
+!
+!           IN/OUT
+!              f_chmbusdyn       -> Dynamic bus for chemistry
+!              f_chmbusper       -> Permanent bus for chemistry
+!              f_chmbusvol       -> Volatile bus for chemistry
+!
+!=============================================================================
+subroutine mach_diffusion(f_chmbusdyn, f_chmbusper, f_chmbusvol, kt, rho, area, zf,  zh,   dt, f_step, &
+                          f_chm_ni, nk, diffused_species, nsp_diff, &
+                          dd_so2, dd_h2so4,                     &
+                          dd_no, dd_no2, dd_o3, dd_hno3,    &
+                          dd_pan, dd_hono, dd_rno3, dd_nh3, &
+                          dd_noy, dd_h2o2, dd_hcho, deposited_diag, nsp_diag)
+   use chm_utils_mod
+   use chm_nml_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use mach_headers_mod, only:mach_diff_flux, mach_diff_boundary 
+   use mach_gas_headers_mod, only:mach_gasdepflux
+   use chm_datime_mod
+   implicit none
+
+
+   real, dimension(*),           intent(inout) :: f_chmbusdyn, f_chmbusper, f_chmbusvol
+   integer,                      intent(in)    :: f_chm_ni, nk
+   real,                         intent(in)    :: rho(f_chm_ni, nk), area(f_chm_ni), kt(f_chm_ni, nk)
+   real,                         intent(in)    :: dt, zf(f_chm_ni, nk), zh(f_chm_ni, nk)
+   integer,                      intent(in)    :: f_step
+   integer,                      intent(in)    :: nsp_diff, nsp_diag
+   integer, dimension(nsp_diff), intent(in)    :: diffused_species
+   integer, dimension(nsp_diag), intent(in)    :: deposited_diag
+   real, dimension(f_chm_ni),    intent(inout) :: dd_so2, dd_h2so4,dd_no, dd_no2, dd_o3, dd_hno3, &
+                                                  dd_pan, dd_hono, dd_rno3, dd_nh3, dd_noy, dd_h2o2, dd_hcho
+
+   integer                     :: i, k, ni_net, j, ii, sp, nb_bins, cur_bin, cur_sp
+   type(species_info), pointer :: cur_sp_ptr, cur_sp_diag
+   real, allocatable           :: conc(:, :), emissions(:), vd(:), ubf(:)
+   real, parameter             :: g2ug = 1.0e6
+   real, parameter             :: min_value = 1.0e-12
+   real, dimension(f_chm_ni, nsp_diag) :: conc_diag, vd_diag, emiss_diag, w_drydep
+   real, dimension(nsp_diag) :: molwt_diag
+
+   real :: oldnumhrs, oldnumhrsint,aa
+
+! -----------------------------------------------------------------------------------------------------------------
+!  Allocate local arrays (allocate rather than fixed since f_chm_ni is input
+!  and nsp_diff is declared locally):
+!
+   nb_bins = sm(diffused_species(1)) % nb_bins
+   ni_net  = f_chm_ni * nsp_diff * nb_bins
+!
+   allocate(conc(ni_net, nk))
+   allocate(emissions(ni_net))
+   allocate(vd(ni_net))
+   allocate(ubf(ni_net))
+!
+!  Zero the dry deposition space in the permanent bus if necessary:
+! Note Chemistry does not happen at every time step of Physics
+      aa= (real(f_step-chm_step_factor)*chm_timestep)/real(chm_step_factor)
+      oldnumhrs = aa/real(secondsin1hour)
+      oldnumhrsint = real(int(oldnumhrs))
+!
+      if(f_step == 0 .or. (oldnumhrs == oldnumhrsint .and. f_step > chm_step_factor)) then
+! Zero the dry gas deposition accumulator variables:
+     dd_SO2(1:f_chm_ni)   = 0.0
+     dd_H2SO4(1:f_chm_ni) = 0.0
+     dd_NO(1:f_chm_ni)    = 0.0
+     dd_NO2(1:f_chm_ni)   = 0.0
+     dd_O3(1:f_chm_ni)    = 0.0
+     dd_HNO3(1:f_chm_ni)  = 0.0
+     dd_PAN(1:f_chm_ni)   = 0.0
+     dd_HONO(1:f_chm_ni)  = 0.0
+     dd_RNO3(1:f_chm_ni)  = 0.0
+     dd_NH3(1:f_chm_ni)   = 0.0
+     dd_NOY(1:f_chm_ni)   = 0.0
+     dd_H2O2(1:f_chm_ni)   = 0.0
+     dd_HCHO(1:f_chm_ni)   = 0.0
+
+      end if
+
+!  Construct the array of species concentrations
+
+   do k = 1, nk
+      do i = 1, f_chm_ni
+         do sp = 1, nsp_diff * nb_bins
+            ii = calc_ii(sp, i, nsp_diff, nb_bins)
+! nb_bins = 1 means gaseous chemical species.
+            if (nb_bins == 1) then
+               cur_sp_ptr => sm(diffused_species(sp))
+! Special treatment for binned species (PM types, nb_bins > 1)
+! Determine which species and which bin we are dealing with
+            else
+               cur_sp  = ceiling(real(sp) / nb_bins)
+               cur_bin = mod(sp, nb_bins)
+               if (cur_bin == 0) then
+                  cur_bin = nb_bins
+               end if
+               cur_sp_ptr => sm(diffused_species(cur_sp)) % bins_array(cur_bin)
+            end if
+            conc(ii, k) = f_chmbusdyn(cur_sp_ptr % dyn_offset + ik(i, k))
+         end do
+      end do
+   end do
+!
+!  Construct corresponding arrays of species fluxes, deposition velocities, etc.
+!
+   emissions = 0.
+   vd = 0.
+   ubf = 0.
+!
+   do i = 1, f_chm_ni
+      do sp = 1, nsp_diff * nb_bins
+         ii = calc_ii(sp, i, nsp_diff, nb_bins)
+! nb_bins = 1 means gaseous chemical species
+         if (nb_bins == 1) then
+            cur_sp_ptr => sm(diffused_species(sp))
+! Special treatment for binned species (PM types, nb_bins > 1)
+! Determine which species and which bin we are dealing with
+         else
+            cur_sp  = ceiling(real(sp) / nb_bins)
+            cur_bin = mod(sp, nb_bins)
+            if (cur_bin == 0) then
+               cur_bin = nb_bins
+            end if
+            cur_sp_ptr => sm(diffused_species(cur_sp)) % bins_array(cur_bin)
+         end if
+!  Anthropogenic emissions added to emissions array:
+!  original units are g/s:  convert to ug/s
+         if(cur_sp_ptr % ae_name /=  UNASSIGNED) then
+            emissions(ii) = emissions(ii) + f_chmbusper(cur_sp_ptr % ae_offset + (i - 1) ) * g2ug
+         end if
+!  Biogenic emissions added to emissions array:
+!  original units are g/s:  convert to ug/s
+         if(cur_sp_ptr % be_name /=  UNASSIGNED) then
+            emissions(ii) = emissions(ii) + f_chmbusper(cur_sp_ptr % be_offset + (i - 1) ) * g2ug
+         end if
+!  Deposition velocities placed in deposition velocity array. Deposition
+!  velocities for PMs are handled by the CAM package.
+         if(cur_sp_ptr % vd_name /=  UNASSIGNED .and. nb_bins < 2) then
+            vd(ii) = f_chmbusvol(cur_sp_ptr % vd_offset + (i - 1) )
+         end if
+!  Upper boundary fluxes:
+!          if(index_ubf(i) /=  null) then
+!             ubf(ii) = f_chmbusvol(index_ubf(i) + j - 1)
+!          end if
+      end do
+   end do
+
+! for diagnostic of dry deposition fluxes
+   if( nb_bins == 1 ) then
+      do k = 1, nsp_diag
+         cur_sp_diag => sm(deposited_diag(k))
+         molwt_diag(k) = sm(deposited_diag(k)) % mol_wt
+         do sp = 1, nsp_diff
+            cur_sp_ptr => sm(diffused_species(sp))
+            if (associated(cur_sp_ptr,cur_sp_diag)) then
+               do i=1,f_chm_ni
+                 ii = calc_ii(sp, i, nsp_diff, nb_bins)
+                 conc_diag(i,k) = conc(ii,nk)
+                 vd_diag(i,k) = vd(ii)
+                 emiss_diag(i,k) = emissions(ii)
+               enddo
+            endif
+         enddo
+      enddo
+      call mach_gasdepflux( conc_diag, emiss_diag, vd_diag, molwt_diag, &
+                            dt, rho(1,nk), area, zf, zh, f_chm_ni, nk, nsp_diag, w_drydep)
+     dd_SO2(:)   = dd_SO2(:) + w_drydep(:,1)
+     dd_H2SO4(:) = dd_H2SO4(:) + w_drydep(:,2)
+     dd_NO(:)    = dd_NO(:) + w_drydep(:,3)
+     dd_NO2(:)   = dd_NO2(:) + w_drydep(:,4)
+     dd_O3(:)    = dd_O3(:) + w_drydep(:,5)
+     dd_HNO3(:)  = dd_HNO3(:) + w_drydep(:,6)
+     dd_PAN(:)   = dd_PAN(:) + w_drydep(:,7)
+     dd_HONO(:)  = dd_HONO(:) + w_drydep(:,8)
+     dd_RNO3(:)  = dd_RNO3(:) + w_drydep(:,9)
+     dd_NH3(:)   = dd_NH3(:) + w_drydep(:,10)
+     dd_NOY = dd_NO + dd_NO2 + dd_HNO3 + dd_PAN + dd_HONO + dd_RNO3
+     dd_H2O2(:)  = dd_H2O2(:) + w_drydep(:,11)
+     dd_HCHO(:)  = DD_HCHO(:) + w_drydep(:,12)
+   endif
+!
+!  Calculate new concentrations resulting from diffusion, all species in conc:
+!
+!  Each of the four bc_type options results in a different subroutine being called; the subroutines are similar
+!  in nature in that the interior rows of the matrix that is constructed within each are identical; differences
+!  arise because of the boundary condition finite differences options.  Each subroutine in turn calls a
+!  tridiagonal solver, which solves the system of equations and returns the new set of concentrations to the
+!  next level up in the program.
+!    chm_vert_diff_s  -> CHRONOS : concentration gradient = 0 at 1/2 layer distance into
+!                         a shadow zone extending above and below the domain
+!                         (aka CHRONOS method)
+!                        AURAMS : concentration gradient = 0 at 1 layer distance into
+!                         a shadow zone extending above and below the domain
+!                         (aka AURAMS method)
+!                        ORDER1 : first order finite differences inside domain used to
+!                         determine concentration gradient.
+!                        ORDER2 : second order finite differences inside domain used to
+!                         determine concentration gradient.
+   select case (chm_vert_diff_s)
+      case ('FLUX')
+         call mach_diff_flux(conc,    emissions, vd,       ubf, kt, area, rho,      &
+                               f_chm_ni, ni_net,    nsp_diff, nk,  zf, zh, dt, nb_bins )
+      case ('BOUNDARY')
+         call mach_diff_boundary(conc,    emissions, vd,       ubf, kt, area, rho,      &
+                               f_chm_ni, ni_net,    nsp_diff, nk,  zf, zh, dt, nb_bins )
+      case default
+         write(0, *) "It is not normal to see this message"
+   end select
+!
+!  return new chemical concentrations to dynamics bus
+!
+   do k = 1, nk
+      do i = 1, f_chm_ni
+         do sp = 1, nsp_diff * nb_bins
+            ii = calc_ii(sp, i, nsp_diff, nb_bins)
+! nb_bins = 1 means gaseous chemical species
+            if (nb_bins == 1) then
+               cur_sp_ptr => sm(diffused_species(sp))
+! Special treatment for binned species (PM types, nb_bins > 1)
+! Determine which species and which bin we are dealing with
+            else
+               cur_sp  = ceiling(real(sp) / nb_bins)
+               cur_bin = mod(sp, nb_bins)
+               if (cur_bin == 0) then
+                  cur_bin = nb_bins
+               end if
+               cur_sp_ptr => sm(diffused_species(cur_sp)) % bins_array(cur_bin)
+            end if
+            f_chmbusdyn(cur_sp_ptr % dyn_offset + ik(i, k)) = max(conc(ii, k), min_value)
+         end do
+      end do
+   end do
+!
+!  Finished
+!
+   deallocate(conc)
+   deallocate(emissions)
+   deallocate(vd)
+   deallocate(ubf)
+!
+   return
+!
+   contains
+   integer function ik(ix, kz)
+      implicit none
+      integer, intent(in) :: ix, kz
+      ik = (kz - 1) * f_chm_ni + (ix - 1)
+   end function ik
+!
+   integer function calc_ii(sp, i, nsp_diff, nb_bins)
+      integer, intent(in) :: sp, i, nsp_diff, nb_bins
+      calc_ii = sp + (i - 1) * nsp_diff * nb_bins
+   end function calc_ii
+!
+end

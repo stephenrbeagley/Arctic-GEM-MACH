@@ -1,0 +1,383 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_species_info_mod.ftn90
+! Creation       : H. Landry, Decembre 2007
+! Description    : Modules defining species meta-information
+!
+! Extra info     :
+!
+!============================================================================
+
+module chm_species_info_mod
+   use chm_utils_mod
+
+   type :: species_info
+
+!  Identification information
+!    Entry on the dynamic bus
+      character (len=NOMV_LEN)         :: dyn_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: dyn_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: dyn_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: dyn_offset ! Offset for the advection (dynamic bus)
+      integer                          :: dyn_size   ! size of allocated memory on the bus
+
+!    Entry on the permanent bus
+      character (len=NOMV_LEN)         :: per_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: per_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: per_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: per_offset ! Offset in the permanent bus
+      integer                          :: per_size   ! size of allocated memory on the bus
+
+!    Entry on the volatile bus
+      character (len=NOMV_LEN)         :: vol_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: vol_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: vol_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: vol_offset ! Offset in the volatile bus
+      integer                          :: vol_size   ! size of allocated memory on the bus
+
+!    Entry on permanent bus the for the area emissions
+      character (len=NOMV_LEN)         :: ae_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: ae_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: ae_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: ae_offset ! Offset in the bus
+      integer                          :: ae_size   ! size of allocated memory on the bus
+
+!    Entry for the modulated biogenic emissions
+      character (len=NOMV_LEN)         :: be_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: be_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: be_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: be_offset ! Offset in the bus
+      integer                          :: be_size   ! size of allocated memory on the bus
+
+!    Entry for the standard biogenic summer emissions
+      character (len=NOMV_LEN)         :: bse_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: bse_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: bse_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: bse_offset ! Offset in the bus
+      integer                          :: bse_size   ! size of allocated memory on the bus
+
+!    Entry for the standard biogenic winter emissions
+      character (len=NOMV_LEN)         :: bwe_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: bwe_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: bwe_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: bwe_offset ! Offset in the bus
+      integer                          :: bwe_size   ! size of allocated memory on the bus
+
+!    Entry on the permanent bus for the major point sources emissions
+      character (len=NOMV_LEN)         :: me_name   ! Short name, often same as output name
+      integer                          :: me_size   ! size of allocated memory on the bus
+      real, dimension(:),pointer       :: me_list   ! Pointer to the list of values ni x nj x nb_sources for the whole tile
+
+!    Entry on the volatile bus for the vertical diffusion velocities
+      character (len=NOMV_LEN)         :: vd_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: vd_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: vd_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: vd_offset ! Offset in the bus
+      integer                          :: vd_size   ! size of allocated memory on the bus
+
+!    Entry on the volatile bus for converted concentrations in ppb (gases) and ug/m3 (pm)
+      character (len=NOMV_LEN)         :: out_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: out_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: out_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: out_offset ! Offset in the bus
+      integer                          :: out_size   ! size of allocated memory on the bus
+
+!    Entries on the volatile bus for the chemical resistances
+!    Aerodynamic resistance
+      character (len=NOMV_LEN)         :: ra_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: ra_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: ra_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: ra_offset ! Offset in the bus
+      integer                          :: ra_size   ! size of allocated memory on the bus
+!    Molecular diffusion resistance
+      character (len=NOMV_LEN)         :: rb_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: rb_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: rb_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: rb_offset ! Offset in the bus
+      integer                          :: rb_size   ! size of allocated memory on the bus
+!    Total surface resistance
+      character (len=NOMV_LEN)         :: rc_name   ! Short name, often same as output name
+      character (len=LONG_VARNAME)     :: rc_lname  ! Long name, almost not used, for legacy only
+      character (len=DICTSTRING_LEN)   :: rc_string ! String used by chm_gestdict to allocate memory on the bus
+      integer                          :: rc_offset ! Offset in the bus
+      integer                          :: rc_size   ! size of allocated memory on the bus
+
+
+
+
+
+!  Molecular weight
+      real mol_wt
+
+!  Bin information
+      integer nb_bins
+
+!     Pointer to a static array that needs to be declared in the package.
+!     The array will contain all the bins associated with the specie.
+!     The size of this array is package dependent
+      type(species_info), pointer :: bins_array(:)
+
+!  Grid information
+      integer ni
+      integer nk
+
+!  Chemical processes information
+
+!     Vertical diffusion
+      integer ubf_volbus_offset ! upper boundary fluxes
+
+   end type
+
+   type(species_info), allocatable, target, save :: species_master(:)
+   type(species_info), pointer            , save :: sm(:)
+
+   integer, save :: nb_species
+
+   character, parameter :: UNASSIGNED = "*"
+
+   contains
+!============================================================================
+! Name           : zero_fields
+!
+! Description    : Reset content of an array of type species_info
+!
+! Arguments:  OUT
+!                 array -> the array of species_info structure to reset
+!
+!              IN
+!                 array_size -> size of array
+!
+!============================================================================
+   subroutine zero_fields(array, array_size)
+      implicit none
+      integer           , intent(in)  :: array_size
+      type(species_info), intent(out) :: array(array_size)
+!
+!   Local variables
+!
+      integer :: i
+
+      array(1:array_size) % nb_bins = 1
+      array(1:array_size) % mol_wt   = -999
+      array(1:array_size) % dyn_name = UNASSIGNED
+      array(1:array_size) % per_name = UNASSIGNED
+      array(1:array_size) % vol_name = UNASSIGNED
+      array(1:array_size) % ae_name  = UNASSIGNED
+      array(1:array_size) % be_name  = UNASSIGNED
+      array(1:array_size) % bse_name = UNASSIGNED
+      array(1:array_size) % bwe_name = UNASSIGNED
+      array(1:array_size) % me_name  = UNASSIGNED
+      array(1:array_size) % vd_name  = UNASSIGNED
+      array(1:array_size) % ra_name  = UNASSIGNED
+      array(1:array_size) % rb_name  = UNASSIGNED
+      array(1:array_size) % rc_name  = UNASSIGNED
+      array(1:array_size) % out_name = UNASSIGNED
+      do i = 1,array_size
+         nullify(array(i) % me_list )
+      enddo
+
+   end subroutine zero_fields
+
+
+!============================================================================
+! Name           : print_species_info
+!
+! Description    : Print information of one species_info structure
+!
+! Arguments:   IN
+!                 id -> the index of the structure in species_master
+!
+!============================================================================
+   subroutine print_species_info(id, unit)
+      implicit none
+      integer, intent(in)           :: id, unit
+      type(species_info), pointer :: the_array(:)
+
+      integer loop_start, loop_end, i
+
+      write (unit, *) "---------------------------------------------"
+      write (unit, *) "Specie # ", id
+      write (unit, *) "Number of bin:    ", species_master(id) % nb_bins
+      write (unit, *) "Molecular weight: ", species_master(id) % mol_wt
+
+
+      if (species_master(id) % nb_bins > 1) then
+         the_array => species_master(id) % bins_array
+         loop_start = 1
+         loop_end = species_master(id) % nb_bins
+      else
+         the_array => species_master
+         loop_start = id
+         loop_end = id
+      end if
+
+      do i = loop_start, loop_end
+         if (species_master(id) % nb_bins > 1) then
+            write(unit, *) "----"
+            write(unit, *)  "Bin number   : ", i
+         end if
+         if (the_array(i) % dyn_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % dyn_name
+            write (unit, *) "Long name    : ", the_array(i) % dyn_lname
+            write (unit, *) "String       : ", the_array(i) % dyn_string
+            write (unit, *) "Offset       : ", the_array(i) % dyn_offset
+            write (unit, *) "Size         : ", the_array(i) % dyn_size
+         end if
+
+         if (the_array(i) % per_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % per_name
+            write (unit, *) "Long name    : ", the_array(i) % per_lname
+            write (unit, *) "String       : ", the_array(i) % per_string
+            write (unit, *) "Offset       : ", the_array(i) % per_offset
+            write (unit, *) "Size         : ", the_array(i) % per_size
+         end if
+
+         if (the_array(i) % vol_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % vol_name
+            write (unit, *) "Long name    : ", the_array(i) % vol_lname
+            write (unit, *) "String       : ", the_array(i) % vol_string
+            write (unit, *) "Offset       : ", the_array(i) % vol_offset
+            write (unit, *) "Size         : ", the_array(i) % vol_size
+         end if
+
+         if (the_array(i) % ae_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % ae_name
+            write (unit, *) "Long name    : ", the_array(i) % ae_lname
+            write (unit, *) "String       : ", the_array(i) % ae_string
+            write (unit, *) "Offset       : ", the_array(i) % ae_offset
+            write (unit, *) "Size         : ", the_array(i) % ae_size
+         end if
+
+         if (the_array(i) % be_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % be_name
+            write (unit, *) "Long name    : ", the_array(i) % be_lname
+            write (unit, *) "String       : ", the_array(i) % be_string
+            write (unit, *) "Offset       : ", the_array(i) % be_offset
+            write (unit, *) "Size         : ", the_array(i) % be_size
+         end if
+
+         if (the_array(i) % bse_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % bse_name
+            write (unit, *) "Long name    : ", the_array(i) % bse_lname
+            write (unit, *) "String       : ", the_array(i) % bse_string
+            write (unit, *) "Offset       : ", the_array(i) % bse_offset
+            write (unit, *) "Size         : ", the_array(i) % bse_size
+         end if
+
+         if (the_array(i) % bwe_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % bwe_name
+            write (unit, *) "Long name    : ", the_array(i) % bwe_lname
+            write (unit, *) "String       : ", the_array(i) % bwe_string
+            write (unit, *) "Offset       : ", the_array(i) % bwe_offset
+            write (unit, *) "Size         : ", the_array(i) % bwe_size
+         end if
+
+         if (the_array(i) % me_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % me_name
+            write (unit, *) "Size         : ", the_array(i) % me_size
+         end if
+
+         if (the_array(i) % vd_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % vd_name
+            write (unit, *) "Long name    : ", the_array(i) % vd_lname
+            write (unit, *) "String       : ", the_array(i) % vd_string
+            write (unit, *) "Offset       : ", the_array(i) % vd_offset
+            write (unit, *) "Size         : ", the_array(i) % vd_size
+         end if
+
+         if (the_array(i) % ra_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % ra_name
+            write (unit, *) "Long name    : ", the_array(i) % ra_lname
+            write (unit, *) "String       : ", the_array(i) % ra_string
+            write (unit, *) "Offset       : ", the_array(i) % ra_offset
+            write (unit, *) "Size         : ", the_array(i) % ra_size
+         end if
+
+         if (the_array(i) % rb_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % rb_name
+            write (unit, *) "Long name    : ", the_array(i) % rb_lname
+            write (unit, *) "String       : ", the_array(i) % rb_string
+            write (unit, *) "Offset       : ", the_array(i) % rb_offset
+            write (unit, *) "Size         : ", the_array(i) % rb_size
+         end if
+
+         if (the_array(i) % rc_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % rc_name
+            write (unit, *) "Long name    : ", the_array(i) % rc_lname
+            write (unit, *) "String       : ", the_array(i) % rc_string
+            write (unit, *) "Offset       : ", the_array(i) % rc_offset
+            write (unit, *) "Size         : ", the_array(i) % rc_size
+         end if
+
+         if (the_array(i) % out_name /= UNASSIGNED) then
+            write (unit, *) "Output name  : ", the_array(i) % out_name
+            write (unit, *) "Long name    : ", the_array(i) % out_lname
+            write (unit, *) "String       : ", the_array(i) % out_string
+            write (unit, *) "Offset       : ", the_array(i) % out_offset
+            write (unit, *) "Size         : ", the_array(i) % out_size
+         end if
+
+      end do
+      write (unit, *) "---------------------------------------------"
+      write (unit, *) ""
+
+   end subroutine print_species_info
+
+!============================================================================
+! Name           : print_species_info
+!
+! Description    : Print the information of all the species in the
+!                  species_master array
+!
+! Arguments:   None
+!
+!============================================================================
+
+   subroutine print_all_species_info(unit_opt)
+      use chm_utils_mod
+      implicit none
+
+      integer, optional, intent(in) :: unit_opt
+
+      integer i, unit
+
+      if(present(unit_opt)) then
+         unit = unit_opt
+      else
+         unit = chm_lun_out
+      end if
+
+      write (unit, *) "There are ", nb_species, " global species (without the different bins)"
+      do i = 1, nb_species
+         call print_species_info(i, unit)
+      end do
+
+   end subroutine print_all_species_info
+
+end module chm_species_info_mod
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

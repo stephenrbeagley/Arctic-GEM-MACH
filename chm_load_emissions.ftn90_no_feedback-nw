@@ -1,0 +1,181 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_load_emissions.ftn90
+! Creation       : A. Kallaur (MSC/ARQI), Octobre 2006
+! Description    : Read from file (if need be) the surface
+!                  biogenic, anthropogenic and major point sources.
+!
+! Extra info     :
+!
+! Arguments: IN
+!              chm_bper_siz   --> bus size
+!              chm_bper_len   --> bus lenght
+!              gem_datimeo    --> GEM date of origin
+!              gem_dt_8       --> Model time step length
+!              gem_tstep_num  --> Model time step length
+!
+!            IN-OUT
+!              chm_busper3D   --> chemistry permanent bus
+!
+!==============================================================================
+subroutine chm_load_emissions (CHM_BUSPER3D, chm_bper_siz, chm_bper_len, &
+                               gem_datimeo, gem_dt_8, gem_tstep_num)
+   use chm_utils_mod
+   use chm_nml_mod
+   use chm_species_info_mod
+   use chm_datime_mod
+   use chm_ptopo_grid_mod
+   use chm_mjrpts_sortinfo_mod
+   use chm_mjrpts_species_idx_mod
+   use chm_headers_mod, only: chm_emis_file_inquire,  chm_emis_getbmf,    &
+                              chm_mjrpts_get_stkinfo, chm_mjrpts_xref_sortlist, &
+                              chm_mjrpts_rearrange,   chm_mjrpts_get_emissions, &
+                              chm_mjrpts_printlist,   chm_plumerise_prep
+   implicit none
+
+! Arguments
+   integer, intent(in) :: gem_datimeo
+   integer, intent(in) :: gem_tstep_num
+   integer, intent(in) :: chm_bper_siz, chm_bper_len
+   real,    intent(in) :: chm_busper3D(chm_bper_len)
+   real*8,  intent(in) :: gem_dt_8
+
+! Local variables
+   character(len = 2)            etype
+   character(len = 3)            bmf_fst
+   character(len = FILENAME_LEN) pe_file
+   integer                       date1, err
+   real *8                       nhours
+   logical                       local_dbg
+
+   integer  newdate
+   external newdate
+
+! Set debug switch
+
+   local_dbg = (.false. .or. global_debug)
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Inside  chm_load_emissions:'
+      write(chm_lun_out, *) 'gem_datimeo            : ', gem_datimeo
+      write(chm_lun_out, *) 'Model time step number : ', gem_tstep_num
+      write(chm_lun_out, *) 'Model time step length : ', gem_dt_8
+      write(chm_lun_out, *) 'chm_bper_siz           : ', chm_bper_siz
+      write(chm_lun_out, *) 'chm_bper_len           : ', chm_bper_len
+      write(chm_lun_out, *) 'chm_bper(len/siz)      : ', chm_bper_len/chm_bper_siz
+      write(chm_lun_out, *) 'chm_busper3D(1)        : ', chm_busper3D(1)
+   endif
+!
+! Calculate date/time stamp of current time step
+! of the model integration.
+!
+   nhours = dble(gem_tstep_num) * gem_dt_8 * inv_secondsin1hour
+   call incdatr(date1, gem_datimeo, nhours)
+   err = newdate(date1, chm_bmf_dat, chm_bmf_tim, -3)
+!
+! If the time step number is 0, then biogenic base fields are
+! to be read in.
+!
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Model time step: ', gem_tstep_num
+      write(chm_lun_out, *) 'chm_biog_s    : ', chm_biog_s
+   endif
+
+   if (gem_tstep_num == 0) then
+      if (chm_get_be_emis_l) then
+         if ((nb_species > 0) .and. (chm_biog_s /= 'NIL') ) then
+            etype   = 'BE'
+            bmf_fst = 'BMF'
+            if (.not. chm_emis_file_inquire(pe_file, etype, BMF_FST)) then
+               write(chm_lun_out, *) '### Error in chm_load_emissions###'
+               write(chm_lun_out, *) '# Could not find file with biogenics fields'
+               write(chm_lun_out, *) '# Make sure the emissions start and end dates'
+               write(chm_lun_out, *) '# match the model start and end dates in gem_settings.nml'
+               write(chm_lun_out, *) '###            ABORT           ###'
+               call chm_stop('chm_load_emissions', -1)
+            else
+               if (local_dbg) then
+                  write(chm_lun_out, *) 'bmf emissions file in chm_load_emissions : ', pe_file
+               end if
+               call chm_emis_getbmf(CHM_BUSPER3D, chm_bper_len, &
+                                          chm_bper_siz, pe_file,      etype)
+            endif
+         end if
+      else
+         write(chm_lun_out, *) "> Warning"
+         write(chm_lun_out, *) "> Biogenic emissions will NOT be read.  chm_get_be_emis_l = ", chm_get_be_emis_l
+      end if
+   endif
+
+! The following function attempts to open the BMF surface emissions
+! file according to the input dates "chm_date, chm_time" and
+! model time step number (modl_tstep).
+! There is no point to proceed further, if a matching file
+! has not been found.
+!
+! Programming note: There is no consistency checking, that is,
+! If there should have been a file to read, and there wasn't, then
+! a fault mechanism should trigger an error, which
+! there isn't at this moment. (A. Kallaur - October 2006)
+
+   if (nb_species > 0) then
+      if (chm_get_ae_emis_l) then
+         etype   = 'AE'
+         bmf_fst = 'BMF'
+         if (chm_emis_file_inquire(PE_FILE, etype, BMF_FST)) then
+            if (local_dbg) then
+               write(chm_lun_out, *) 'bmf emissions file in chm_load_emissions : ', pe_file
+            end if
+            call chm_emis_getbmf(chm_busper3D, chm_bper_len, &
+                                       chm_bper_siz, pe_file, etype)
+         end if
+      else
+         write(chm_lun_out, *) "> Warning"
+         write(chm_lun_out, *) "> Area emissions will NOT be read.  chm_get_ae_emis_l = ", chm_get_ae_emis_l
+      end if
+      if (chm_get_mj_emis_l) then
+      ! Major points are implemented, but not fully tested yet.
+         etype   = 'MJ'
+         bmf_fst = 'FST'
+         if (chm_emis_file_inquire(pe_file, etype, BMF_FST)) then
+!            if (.not. done_mjpts_sort) then
+               call chm_mjrpts_get_stkinfo(pe_file, etype, CHM_DO_MJPTS_L)
+               if (chm_do_mjpts_l) then      ! A number of stacks (>0) as been found in local grid
+!                  call chm_mjrpts_xref_sortlist( )
+!                  call chm_mjrpts_rearrange('STAKINFO', emjpt_stki_ll)
+                  done_mjpts_sort = .true.
+               else
+                  write(chm_lun_out, *) "> Warning"
+                  write(chm_lun_out, *) "> No Major point sources in local MPI domain(npx,npy):  ",c_Ptopo_mycol, c_Ptopo_myrow
+!               endif
+            endif
+            if ( chm_do_mjpts_l ) then
+               call chm_mjrpts_get_emissions(gem_tstep_num, pe_file, etype)
+!               call chm_mjrpts_rearrange('EMISSION', nb_me_species)
+               if (.not. done_mjpts_cnx_main_specie_list ) then
+                  call chm_plumerise_prep( )
+                  done_mjpts_cnx_main_specie_list = .true.
+               endif
+!             if(local_dbg) then
+!                call chm_mjrpts_printlist( )
+!             end if
+            endif
+         endif
+      else
+         write(chm_lun_out, *) "> Warning"
+         write(chm_lun_out, *) "> Major point sources emissions will NOT be read or treated "
+         write(chm_lun_out, *) "> chm_get_mj_emis_l = ", chm_get_mj_emis_l
+      end if
+   end if
+   return
+end subroutine chm_load_emissions
+

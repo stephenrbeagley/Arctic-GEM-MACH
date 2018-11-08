@@ -1,0 +1,415 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_gesdict.ftn90
+! Creation       : A. Kallaur (MSC/ARQI).  Dec. 2006
+! Description    : Manages the dictionary describing the 4 main buses of the unified
+!                  CMC-RPN-ARQI chemistry package interface (CHMBUSENT, CHMBUSDYN,
+!                  CHMBUSPER and CHMBUSVOL).
+!                  Each variable has a formal name <bus>nm(*) and a formal
+!                  description <bus>dc(*) along with 4 attributes <bus>par(*, 4).
+!                  The first and second attributes are respectively the starting
+!                  index on <bus> and the length of the variable. The third
+!                  attribute is the multiplicity factor. The fourth attribute is
+!                  the a flag to identify variables that are defined on staggered levels.
+!                  The recognized token in "lachaine" are:
+!                     VN=  ;       ===> formal name
+!                     ON=  ;       ===> output name (2 letters only)
+!                     VD=  ;       ===> formal description
+!                     VS=  ;       ===> variable shape (accepted shapes are SLB and
+!                                       ROW with +, - or * followed by an integer)
+!                     VB=  ;       ===> bus identification
+!
+! Extra info     : Based on gesdict.ftn on the GEM side
+!
+! Arguments:
+!           IN
+!              n        --> horizontal dimension
+!              nk       --> vertical dimension
+!              lachaine --> string identifying the variable attributes
+!
+!           OUT
+!              lindex   --> starting index on the bus
+!              esp      --> Size allocated on the bus
+!
+!=============================================================================
+!copyright (C) 2001  MSC-RPN COMM  %%%RPNPHY%%%
+! ***s/p  chmgesdict
+! *
+subroutine chm_gesdict (n, nk, LINDEX, lachaine, esp)
+   use chm_utils_mod
+   use chm_buses_mod
+   use chm_headers_mod, only:chm_splitst
+   implicit none
+
+   character(len = *), intent(in) :: lachaine
+   integer,            intent(in) :: n, nk
+   integer,            intent(out):: lindex, esp
+
+!  Local variables
+   character(len = 1)           bus
+   character(len = NOMV_LEN)    outname
+   character(len = 3)           shape
+   character(len = 7)           struc
+   character(len = NMLKEY_LEN)  varname, samename, othername
+   character(len = 48)          vdescrp
+   character(len = VARDESC_LEN) vardesc
+   character(len = 120)         string
+   integer       fadd, fmul, dynini, stagg
+   integer       i
+   logical       local_dbg
+
+   local_dbg = (.false. .or. global_debug)
+
+! *-------------------------------------------------------------------
+   call low2up  (lachaine, string)
+   call chm_splitst (varname, outname, vdescrp, struc, shape, fadd, fmul, &
+                                       bus, dynini, stagg, string)
+   vardesc = vdescrp // ';VS=' // struc
+   lindex  = 0
+
+   select case (bus)
+   case ("E")
+      i = 1
+      do while ((i <= chmenttop) .and. (varname /= chmentnm(i, 1)))
+!        verifier si la meme description existe deja
+         if (vardesc == chmentdc(i)) then
+            if (varname /= chmentnm(i, 1)) then
+               write (chm_lun_out, 903) varname, chmentnm(i, 1), chmentdc(i)
+               call chm_stop('chm_gesdict', -1)
+            end if
+         end if
+         i = i + 1
+      end do  ! i = 1, chmenttop
+
+      if (varname == chmentnm(i, 1)) then
+         if (vardesc /= chmentdc(i)) then
+            write (chm_lun_out, 901) varname, vardesc, chmentdc(i)
+            call chm_stop('chm_gesdict', -1)
+         end if
+         esp = n * nk
+         if (shape == "ROW") then
+            esp = n
+         end if
+         if (chmentpar(i, 2) /= (esp * fmul + fadd)) then
+            write (chm_lun_out, 902) varname, chmentpar(i, 2), (esp * fmul + fadd)
+            call chm_stop('chm_gesdict', -1)
+         end if
+         lindex = chmentpar(i, 1)
+      else
+         if (.not. chmbuslck) then
+            chmenttop = chmenttop + 1
+            esp = n * nk
+            chmentpar(chmenttop, 7) = nk
+            if (shape == "ROW") then
+               esp = n
+               chmentpar(chmenttop, 7) = 1
+            end if
+            chmentpar(chmenttop, 5) = esp
+            esp = esp * fmul + fadd
+            chmentnm (chmenttop, 1) = varname
+            chmentnm (chmenttop, 2) = outname
+            chmentdc (chmenttop  ) = vardesc
+            chmentpar(chmenttop, 1) = chmentspc+1
+            chmentpar(chmenttop, 2) = esp
+            chmentpar(chmenttop, 3) = dynini
+            chmentpar(chmenttop, 4) = stagg
+            chmentpar(chmenttop, 6) = fmul
+            chmentspc              = chmentpar(chmenttop, 1)+esp-1
+            lindex                 = chmentpar(chmenttop, 1)
+         end if  ! (.not. chmbuslck)
+      end if
+
+   case ("D")
+      i = 1
+      do while ((i <= chmdyntop) .and. (varname /= chmdynnm(i, 1)))
+!        verifier si la meme description existe deja
+         if (vardesc == chmdyndc(i)) then
+            if (varname /= chmdynnm(i, 1)) then
+               write (chm_lun_out, 903) varname, chmdynnm(i, 1), chmdyndc(i)
+               call chm_stop('chm_gesdict', -1)
+            end if
+         end if
+         i = i + 1
+      end do  ! i = 1, chmdyntop
+
+      if (varname == chmdynnm(i, 1)) then
+         if (vardesc /= chmdyndc(i)) then
+            write (chm_lun_out, 901) varname, vardesc, chmdyndc(i)
+            call chm_stop('chm_gesdict', -1)
+         end if
+         esp = n * nk
+         if (shape == "ROW") then
+            esp = n
+         end if
+         if (chmdynpar(i, 2) /= (esp * fmul + fadd)) then
+            write (chm_lun_out, 902) varname, chmdynpar(i, 2), (esp * fmul + fadd)
+            call chm_stop('chm_gesdict', -1)
+         end if
+         lindex = chmdynpar(i, 1)
+      else
+         if (.not. chmbuslck) then
+            chmdyntop = chmdyntop + 1
+            if (chmdyntop > chmmaxbus) then
+               write(chm_lun_out, 906) chmdyntop, chmmaxbus
+               call chm_stop('chm_gesdict', -1)
+            end if
+            esp = n * nk
+            chmdynpar(chmdyntop, 7) = nk
+            if (shape == "ROW") then
+               esp = n
+               chmdynpar(chmdyntop, 7) = 1
+            end if
+            chmdynpar(chmdyntop, 5) = esp
+            esp                    = esp * fmul + fadd
+            chmdynnm (chmdyntop, 1) = varname
+            chmdynnm (chmdyntop, 2) = outname
+            chmdyndc (chmdyntop)   = vardesc
+            chmdynpar(chmdyntop, 1) = chmdynspc + 1
+            chmdynpar(chmdyntop, 2) = esp
+            chmdynpar(chmdyntop, 3) = dynini
+            chmdynpar(chmdyntop, 4) = stagg
+            chmdynpar(chmdyntop, 6) = fmul
+            chmdynspc              = chmdynpar(chmdyntop, 1) + esp - 1
+            lindex                 = chmdynpar(chmdyntop, 1)
+         end if  ! (.not. chmbuslck)
+      end if
+
+   case ("P")
+      i = 1
+      do while ((i <= chmpertop) .and. (varname /= chmpernm(i, 1)))
+!        verifier si la meme description existe deja
+         if (vardesc == chmperdc(i)) then
+            if (varname /= chmpernm(i, 1)) then
+               write (chm_lun_out, 903) varname, chmpernm(i, 1), chmperdc(i)
+               call chm_stop('chm_gesdict', -1)
+            end if
+         end if
+         i = i + 1
+      end do  ! i = 1, chmpertop
+
+      if (varname == chmpernm(i, 1)) then
+         if (vardesc /= chmperdc(i)) then
+            write (chm_lun_out, 901) varname, vardesc, chmperdc(i)
+            call chm_stop('chm_gesdict', -1)
+         end if
+         esp = n * nk
+         if (shape == "ROW") esp = n
+         if (chmperpar(i, 2) /= (esp * fmul + fadd)) then
+            write (chm_lun_out, 902) varname, chmperpar(i, 2), (esp * fmul + fadd)
+            call chm_stop('chm_gesdict', -1)
+         end if
+         lindex = chmperpar(i, 1)
+      else
+         if (.not. chmbuslck) then
+            chmpertop = chmpertop + 1
+            if (chmpertop > chmmaxbus) then
+               write(chm_lun_out, 906) chmpertop, chmmaxbus
+               call chm_stop('chm_gesdict', -1)
+            end if
+            esp = n * nk
+            chmperpar(chmpertop, 7) = nk
+            if (shape == "ROW") then
+               esp = n
+               chmperpar(chmpertop, 7) = 1
+            end if
+            chmperpar(chmpertop, 5) = esp
+            esp                    = esp * fmul + fadd
+            chmpernm (chmpertop, 1) = varname
+            chmpernm (chmpertop, 2) = outname
+            chmperdc (chmpertop)   = vardesc
+            chmperpar(chmpertop, 1) = chmperspc + 1
+            chmperpar(chmpertop, 2) = esp
+            chmperpar(chmpertop, 3) = dynini
+            chmperpar(chmpertop, 4) = stagg
+            chmperpar(chmpertop, 6) = fmul
+            chmperspc              = chmperpar(chmpertop, 1) + esp - 1
+            lindex                 = chmperpar(chmpertop, 1)
+         end if  ! (.not. chmbuslck)
+      end if
+
+   case ("V")
+      i = 1
+      do while ((i <= chmvoltop) .and. (varname /= chmvolnm(i, 1)))
+!        verifier si la meme description existe deja
+         if (vardesc == chmvoldc(i)) then
+            if (varname /= chmvolnm(i, 1)) then
+               write (chm_lun_out, 903) varname, chmvolnm(i, 1), chmvoldc(i)
+               call chm_stop('chm_gesdict', -1)
+            end if
+         end if
+         i = i + 1
+      end do  ! i = 1, chmvoltop
+
+      if (varname == chmvolnm(i, 1)) then
+         if (vardesc /= chmvoldc(i)) then
+            write (chm_lun_out, 901) varname, vardesc, chmvoldc(i)
+            call chm_stop('chm_gesdict', -1)
+         end if
+         esp = n * nk
+         if (shape == "ROW") esp = n
+         if (chmvolpar(i, 2) /= (esp * fmul + fadd)) then
+            write (chm_lun_out, 902) varname, chmvolpar(i, 2), (esp * fmul + fadd)
+            call chm_stop('chm_gesdict', -1)
+         end if
+         lindex = chmvolpar(i, 1)
+      else
+         if (.not. chmbuslck) then
+            chmvoltop = chmvoltop + 1
+            if (chmvoltop > chmmaxbus) then
+               write(chm_lun_out, 906) chmvoltop, chmmaxbus
+               call chm_stop('chm_gesdict', -1)
+            end if
+            esp = n * nk
+            chmvolpar(chmvoltop, 7) = nk
+            if (shape == "ROW") then
+               esp = n
+               chmvolpar(chmvoltop, 7) = 1
+            end if
+            chmvolpar(chmvoltop, 5) = esp
+            esp                    = esp * fmul + fadd
+            chmvolnm(chmvoltop, 1)  = varname
+            chmvolnm(chmvoltop, 2)  = outname
+            chmvoldc(chmvoltop)    = vardesc
+            chmvolpar(chmvoltop, 1) = chmvolspc + 1
+            chmvolpar(chmvoltop, 2) = esp
+            chmvolpar(chmvoltop, 3) = dynini
+            chmvolpar(chmvoltop, 4) = stagg
+            chmvolpar(chmvoltop, 6) = fmul
+            chmvolspc              = chmvolpar(chmvoltop, 1) + esp - 1
+            lindex                 = chmvolpar(chmvoltop, 1)
+         end if
+      end if
+   end select
+
+! * verifier que le nom de la variable est unique
+   if (bus /= 'E') then
+      do i = 1, chmenttop
+         if (varname == chmentnm(i, 1)) then
+            write(chm_lun_out, 905) varname, 'E'
+            call chm_stop('chm_gesdict', -1)
+         end if
+      end do
+   end if
+
+   if (bus /= 'D') then
+      do i = 1, chmdyntop
+         if (varname == chmdynnm(i, 1)) then
+            write(chm_lun_out, 905) varname, 'D'
+            call chm_stop('chm_gesdict', -1)
+         end if
+      end do
+   end if
+
+   if (bus /= 'P') then
+      do i = 1, chmpertop
+         if (varname == chmpernm(i, 1)) then
+            write(chm_lun_out, 905) varname, 'P'
+            call chm_stop('chm_gesdict', -1)
+         end if
+      end do
+   end if
+
+   if (bus /= 'V') then
+      do i = 1, chmvoltop
+         if (varname == chmvolnm(i, 1)) then
+            write(chm_lun_out, 905) varname, 'V'
+            call chm_stop('chm_gesdict', -1)
+         end if
+      end do
+   end if
+
+   do i = 1, chmenttop
+!     verifier que le nom de 2 lettres est unique
+      if (outname == chmentnm(i, 2) .and. varname /= chmentnm(i, 1)) then
+         samename = chmentnm(i, 1)
+         write(chm_lun_out, 904) varname, outname, samename
+         call chm_stop('chm_gesdict', -1)
+      end if
+!     verifier qu'une variable ne porte qu'un seul nom de 2 lettres
+      if (varname == chmentnm(i, 1) .and. outname /= chmentnm(i, 2)) then
+         othername = chmentnm(i, 2)
+         write(chm_lun_out, 907) varname, outname, othername
+         call chm_stop('chm_gesdict', -1)
+      end if
+   end do
+
+   do i = 1, chmdyntop
+      if (outname == chmdynnm(i, 2) .and. varname /= chmdynnm(i, 1)) then
+         samename = chmdynnm(i, 1)
+         write(chm_lun_out, 904) varname, outname, samename
+         call chm_stop('chm_gesdict', -1)
+      end if
+!     verifier qu'une variable ne porte qu'un seul nom de 2 lettres
+      if (varname == chmdynnm(i, 1) .and. outname /= chmdynnm(i, 2)) then
+         othername = chmdynnm(i, 2)
+         write(chm_lun_out, 907) varname, outname, othername
+         call chm_stop('chm_gesdict', -1)
+      end if
+   end do
+
+   do i = 1, chmpertop
+      if (outname == chmpernm(i, 2) .and. varname /= chmpernm(i, 1)) then
+         samename = chmpernm(i, 1)
+         write(chm_lun_out, 904) varname, outname, samename
+         call chm_stop('chm_gesdict', -1)
+      end if
+      if (varname == chmpernm(i, 1) .and. outname /= chmpernm(i, 2)) then
+         othername = chmpernm(i, 2)
+         write(chm_lun_out, 907) varname, outname, othername
+         call chm_stop('chm_gesdict', -1)
+      end if
+   end do
+
+   do i = 1, chmvoltop
+      if (outname == chmvolnm(i, 2) .and. varname /= chmvolnm(i, 1)) then
+         samename = chmvolnm(i, 1)
+         write(chm_lun_out, 904) varname, outname, samename
+         call chm_stop('chm_gesdict', -1)
+      end if
+      if (varname == chmvolnm(i, 1) .and. outname /= chmvolnm(i, 2)) then
+         othername = chmvolnm(i, 2)
+         write(chm_lun_out, 907) varname, outname, othername
+         call chm_stop('chm_gesdict', -1)
+      end if
+   end do
+
+   if (local_dbg) then
+      write(chm_lun_out, *) "Treated   :", varname
+      write(chm_lun_out, *) "Allocated :", esp
+   end if
+
+
+ 901  format (/1x, "==> STOP IN CHMGESDICT: CONFLICT IN '", a16,    &
+                  "' DESCRIPTION."/4x, "ALREADY ACCEPTED: ", a/11x,    &
+                  "ATTEMPTED: ", a/)
+ 902  format (/1x, "==> STOP IN CHMGESDICT: CONFLICT IN '", A16,    &
+                  "' DIMENSION."/4x, "ALREADY ACCEPTED: ", i9/11x,    &
+                  "ATTEMPTED: ", i9/)
+ 903  format (/1x, "==> STOP IN CHMGESDICT: NAME CONFLICT.",    &
+                  " VARIABLES '", a16, "' AND '", a16, "'"/,    &
+                  " SHARE THE SAME DESCRIPTION. DESCRIPTION IS :"/,    &
+                  " '", A, "'"/)
+ 904  format (/1x, "==> STOP IN CHMGESDICT: CONFLICT FOR '", A16,    &
+                  "' OUTPUT NAME."/5x, '"', a2, '"', " ALREADY ACCEPTED",    &
+                  " FOR VARIABLE '", a16, "'."/)
+
+ 905  format (/1x, "==> STOP IN CHMGESDICT: CONFLICT FOR '", A16,    &
+                  "' VARIABLE NAME.", /5x, "THIS NAME HAS",    &
+                  " ALREADY BEEN ACCEPTED IN BUS ", '"', a1, '".'/)
+
+ 906  format (/1x, "==> STOP : ", i4, " EXCEEDS MAXBUS (", i4, ") !!!")
+
+ 907  format (/1x, "==> STOP IN CHMGESDICT: CONFLICT FOR '", A16,    &
+                  "' VARIABLE NAME.", /5x, "THIS VARIABLE HAS",    &
+                  " TWO DIFFERENT OUTPUT NAMES: ",    &
+                  '"', a2, '"', " AND ", '"', A2, '".'/)
+end subroutine chm_gesdict

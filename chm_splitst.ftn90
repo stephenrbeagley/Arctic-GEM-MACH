@@ -1,0 +1,192 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_splitst.ftn90 (originally splitst.ftn from RPN/Physics lib)
+! Creation       : M. Desgagne (Oct 1995)
+!
+!Revision
+! 001      B. Bilodeau (Sept 1996) - Add 2-letter names
+! 002      B. Bilodeau (Aug  1998) - Add staggered levels
+! 003      A. Kallaur  (Nov  2007) - Freeze chemical version since physics
+!                                    gesdict/splitst as of v_4.5 no longer
+!                                    compatible.
+! Description    : Parse character string and associated arguments passed from
+!                  chm_gesdict.ftn90, and output chemical system parameters to
+!                  each specie.
+!
+! Extra info     : Similar to physics version of splitst (v_4.4& lower). This
+!                  version contains fadd (extend gridpt length). This feature
+!                  IS NOT TO BE USED since the output mechanism does not
+!                  support it.
+!
+! Arguments:
+!            - Input -
+! string    input description string including all tokens
+!
+!            - Output -
+! cvn       formal name (VN)
+! con       output name (ON)
+! cvd1      formal description (VD)
+! cvd2      complete shape (VS)
+! cvs       shape --ROW or SLB or SLS-- (VS)
+! fadd      additive factor
+! fmul      multiplicative factor
+! cvb       bus identification (VB)
+! dynini    flag for initialysation by the dynamics (1=yes)
+! stagg     flag for staggered levels (0=non staggered; 1=staggered)
+!
+!===========================================================================
+!
+ subroutine chm_splitst (cvn,con,cvd1,cvd2,cvs,fadd,fmul,cvb,dynini, &
+                         stagg,string)
+   use chm_utils_mod
+ implicit none
+!
+      character(len=*), intent(in)   :: string
+      character(len=*), intent(out)  :: con,cvn,cvd1,cvd2,cvb
+      character(len=3), intent(out)  :: cvs
+      integer,          intent(out)  :: fadd,fmul,dynini,stagg
+!
+!     Local variables
+!
+      character(len=120) :: dum120
+      integer            :: ion,ivn,ivd,ivs,ivb
+      integer            :: ideb,ifin,lst,flag
+!
+!-------------------------------------------------------------------
+!
+      lst       = len(string)
+      ivn       = index(string,"VN=") + 3
+      ion       = index(string,"ON=") + 3
+      ivd       = index(string,"VD=") + 3
+      ivs       = index(string,"VS=") + 3
+      ivb       = index(string,"VB=") + 3
+
+      if (ion.lt.1) then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: ON=[NAME] (MANDATORY)",string
+         call chm_stop('chm_splitst',-1)
+      endif
+      if (ivn.lt.1) then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: VN=[NAME] (MANDATORY)",string
+         call chm_stop('chm_splitst',-1)
+      endif
+      if (ivd.lt.1) then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: VD=[DESCRIPTION] (MANDATORY)",string
+         call chm_stop('chm_splitst',-1)
+      endif
+      if (ivs.lt.1) then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: VS=[SHAPE] (MANDATORY)",string
+         call chm_stop('chm_splitst',-1)
+      endif
+      if (ivb.lt.1) then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: VB=[BUS] (MANDATORY)",string
+         call chm_stop('chm_splitst',-1)
+      endif
+
+      dum120 = string(ivn:lst)
+      ifin   = index (dum120,';') - 1
+      if (ifin.lt.0) ifin = 120
+      cvn    = dum120(1:ifin)
+      if (cvn.eq." ")  then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: VN=(NAME) NOT ALLOWED",string
+         call chm_stop('chm_splitst',-1)
+      endif
+
+      dum120 = string(ion:lst)
+      ifin   = index (dum120,';') - 1
+      if (ifin.lt.0) ifin = 120
+      con    = dum120(1:ifin)
+      if (con.eq." ")  then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: ON=(NAME) NOT ALLOWED",string
+         call chm_stop('chm_splitst',-1)
+      endif
+
+      dum120 = string(ivd:lst)
+      ifin   = index (dum120,';') - 1
+      if (ifin.lt.0) ifin = 120
+      cvd1   = dum120(1:ifin)
+      if (cvd1.eq." ")  then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: VD=(DESCRIPTION) NOT ALLOWED",string
+         call chm_stop('chm_splitst',-1)
+      endif
+
+      dum120 = string(ivs:lst)
+      ifin   = index (dum120,';') - 1
+      if (ifin.lt.0) ifin = 120
+      cvd2   = dum120(1:ifin)
+      cvs    = dum120(1:ifin)
+      if ((cvs.ne."SLB").and.(cvs.ne."SLS").and.(cvs.ne."ROW")) then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: VS=(SHAPE) NOT ALLOWED",string
+         write (chm_lun_out,*) 'VN= ',cvn
+         write (chm_lun_out,*) 'ON= ',con
+         call chm_stop('chm_splitst',-1)
+      endif
+
+      fadd = 0
+      ideb = index(string,cvs//"+") + 4
+      if (ideb.gt.4) then
+         dum120        = string(ideb:lst)
+         dum120(15:15) = ' '
+         ifin = index (dum120,';')
+         if (ifin.gt.1) dum120(ifin:ifin+7) = '        '
+         read (dum120,702,iostat=flag) fadd
+         if (flag.gt.0) fadd = 0
+      endif
+      ideb = index(string,cvs//"-") + 4
+      if (ideb.gt.4) then
+         dum120        = string(ideb:lst)
+         dum120(15:15) = ' '
+         ifin = index (dum120,';')
+         if (ifin.gt.1) dum120(ifin:ifin+7) = '        '
+         read (dum120,702,iostat=flag) fadd
+         if (flag.gt.0) fadd = 0
+         fadd = -fadd
+      endif
+
+      fmul = 1
+      ideb = index(string,cvs//"*") + 4
+      if (ideb.gt.4) then
+         dum120        = string(ideb:lst)
+         dum120(15:15) = ' '
+         ifin = index (dum120,';')
+         if (ifin.gt.1) dum120(ifin:ifin+7) = '        '
+         read (dum120,702,iostat=flag) fmul
+         if (flag.gt.0) fmul = 1
+      endif
+
+      dum120 = string(ivb:lst)
+      ifin   = index (dum120,';') - 1
+      if (ifin.lt.0) ifin = 120
+      cvb    = dum120(1:ifin)
+      if ((cvb.ne."E").and.(cvb.ne."D").and.(cvb.ne."P").and.(cvb.ne."V")) then
+         write (chm_lun_out,800) "call chm_stop('chm_splitst',-1) IN SPLITST: VB=(BUS) NOT ALLOWED",string
+         call chm_stop('chm_splitst',-1)
+      endif
+
+      dynini = 0
+      dum120 = string(ivb+1:lst)
+      ifin   = index (dum120,';') - 1
+      if (ifin.lt.0) ifin = 120
+      read (dum120(1:ifin),702,iostat=flag) dynini
+      dynini = min(dynini,1)
+
+      if (cvs.eq.'SLS') then
+         stagg = 1
+      else
+         stagg = 0
+      endif
+
+ 702  format (i8)
+ 800  format (/1x,a,/"STRING= '",a,"'"/)
+
+      return
+      end subroutine chm_splitst
+

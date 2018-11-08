@@ -1,0 +1,51 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_datime_mod.ftn90
+! Creation       : H. Landry, Mai 2008
+! Description    : Modules defining variables related to start & end date and time
+!
+! Extra info     :
+!
+!============================================================================
+module chm_datime_mod
+
+   save
+
+   real*8, parameter :: secondsin1hour     = 3600.0d0
+   real*8, parameter :: inv_secondsin1hour = 1.0d0/secondsin1hour
+   real*8, parameter :: sec_in_day         = 86400.0d0
+
+
+   integer :: chm_bmf_dat  ! Date of validity in YYYMMDD
+   integer :: chm_bmf_tim  ! Time of validity in hhmmssxx (xx-> hundreths of sec)
+   integer :: chm_bmf_dtyp
+   integer :: chm_bmf_hh, chm_bmf_mm, chm_bmf_ss ! hours, minutes, seconds
+   real*8  :: chm_time_delay     ! Time in sec between beginning of integration and beginning of chemistry
+   integer :: ijul_day     ! Julian calendar day (Integer copy)
+   real    :: rjul_day     ! Julian calendar day (Real copy)
+   integer :: chm_dttim(14) ! Used in chm_debu to get RPN 14 word
+!                             start-of-run date time stamp (kept for backward
+!                             compatibility w.r.t. BIRA CHEM). As per the RPN
+!                             protocol, the significance of each element is
+!                             (see RPN info on functions datmgp or idatmg):
+!                             - idate(1)=day of the week (1-7, sunday=1)
+!                             - idate(2)=month (1-12)
+!                             - idate(3)=day (1-31)
+!                             - idate(4)=year (1900-2100):for datmgp2
+!                             - idate(4)=year (0-99):for datmgp
+!                             - idate(5)=zulu (0-23)
+!                             - idate(6)=100*number_of_second_since_last_hour (0, 359 999):for datmgp2
+!                             - idate(6)=run (0-9):for datmgp
+!                             - idate(7-13)=character format (7A4) of date-time
+!                             - idate(14)= RPN/CMC date-time stamp
+
+end module chm_datime_mod

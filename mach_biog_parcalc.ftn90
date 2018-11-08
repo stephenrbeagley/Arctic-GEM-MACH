@@ -1,0 +1,119 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_biog_parcalc.ftn90
+! Creation       : H. Landry, S. Menard, A. Kallaur - mai 2006
+! Description    : Compute the Photosynthetically Active Radiation (PAR)
+!
+! Extra info     : (from the original file in AURAMS v1.3.1 modele/pre/parcalc.ftn90)
+!                  Computes the radiation terms needed for biogenic calculations.
+!                  two terms are computed: total solar radiation (langleys/min)
+!                  and par (ue/m**2-s).  the methodology for this calculation
+!                  was taken from iqbal, m., 1983. an introduction to solar
+!                  radiation. academic press, new york, pp. 202-210.
+!
+! Arguments: IN
+!              ni             -> slab size
+!              cosine_solar_p -> cosine of solar angle
+!              solar_irr_p    -> solar irradiation
+!              surf_press_p   -> surface pressure
+!              cloud_fract_p  -> cloud cover
+!            OUT
+!              par    -> PAR
+!              pardb  -> PAR direct beam
+!              pardif -> PAR diffuse
+!
+!==============================================================================
+
+subroutine mach_biog_parcalc(ni,                &
+                             solar_irr_p,       &
+                             cosine_solar_p,    &
+                             surf_press_p,      &
+                             PAR, PARDB, PARDIF  )
+   use chm_utils_mod
+
+   implicit none
+
+!  Arguments
+   integer, intent(in) :: ni                ! slab horizontal size
+   real, intent(in) :: solar_irr_p(ni)      ! solar irradiation
+   real, intent(in) :: cosine_solar_p(ni)   ! cosine of solar angle
+   real, intent(in) :: surf_press_p(ni)     ! surface pressure
+
+   real, intent(out) :: par(ni), pardb(ni), pardif(ni)  ! PAR, PAR direct beam, PAR diffuse
+
+!  Internal variables
+   real :: ot, wa, ratio
+   real :: rad_direct_vis, rad_diffuse_vis, rad_direct_ir, rad_diffuse_ir
+   real :: rad_visible_total, rad_ir_total
+   real :: fract_rad_visible, fract_direct_vis, fract_diffuse_vis
+
+!  * Loop variable
+   integer i
+
+!  * some constants
+   real, parameter :: min_cosine   = 0.0208 ! Minimum cosine of solar angle allowed for calculation ( about cos(88.8 deg) )
+   real, parameter :: min_pressure = 10000  ! Minimum surface pressure allowed for calculation ( in pascal )
+   real, parameter :: std_pressure = 101325 ! Standard pressure at sea level ( in pascal )
+   real, parameter :: watt_2_umol  = 4.6    ! conversion factor from watt to umol
+
+   par(1:ni)    = 0.0
+   pardb(1:ni)  = 0.0
+   pardif(1:ni) = 0.0
+
+!    Loop on the slab
+   do i = 1, ni
+!     First do some value check
+      if (surf_press_p(i) < min_pressure) then
+         write(0, *) 'ERROR, surface pressure is too low at surf_press_p(', i, ') = ', surf_press_p(i)
+         write(0, *) '*** ABORTING ***'
+         call chm_stop('mach_biog_parcalc', -1)
+      endif
+
+      if (cosine_solar_p(i) >= min_cosine .AND. solar_irr_p(i) > 0.0) then
+!        Compute clear sky radiation terms (maximum)
+         ot = surf_press_p(i) / std_pressure / cosine_solar_p(i)
+         rad_direct_vis  = 600.0 * exp(-0.185 * ot)         * cosine_solar_p(i)
+         rad_diffuse_vis = 0.42  * (600.0 - rad_direct_vis) * cosine_solar_p(i)
+         wa = 1320.0 * 0.077 * (2.0 * ot)**0.3
+
+         rad_direct_ir  =        (720.0 * exp(-0.06 * ot)- wa) * cosine_solar_p(i)
+         rad_diffuse_ir = 0.65 * (720.0 - wa - rad_direct_ir)  * cosine_solar_p(i)
+
+         rad_visible_total = rad_direct_vis + rad_diffuse_vis
+         rad_ir_total      = rad_direct_ir  + rad_diffuse_ir
+         fract_rad_visible = rad_visible_total / (rad_ir_total + rad_visible_total)
+
+         ratio = solar_irr_p(i) / (rad_ir_total + rad_visible_total)
+
+!        Compute fraction of visible that is direct beam
+
+         if (ratio >= 0.89) then
+            fract_direct_vis = rad_direct_vis / rad_visible_total * 0.941124
+         else if (ratio < 0.21) then
+            fract_direct_vis = rad_direct_vis / rad_visible_total * 9.55E-3
+         else
+            fract_direct_vis = rad_direct_vis / rad_visible_total * (1.0 - ((0.9 - ratio) / 0.7)**0.666667)
+         endif
+
+         fract_diffuse_vis = 1.0 - fract_direct_vis
+
+!     Compute PAR, direct beam and diffuse, i umol/m2.sec
+
+         pardb(i)  = solar_irr_p(i) * fract_rad_visible * fract_direct_vis  * watt_2_umol
+         pardif(i) = solar_irr_p(i) * fract_rad_visible * fract_diffuse_vis * watt_2_umol
+         par(i)    = pardif(i) + pardb(i)
+
+      endif
+
+   enddo  ! end of slab loop
+
+end subroutine mach_biog_parcalc

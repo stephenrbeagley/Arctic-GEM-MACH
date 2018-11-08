@@ -1,0 +1,313 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_tenddist.ftn90
+! Creation       : S. Gong, B. Pabla and S. Gravel for GEM-MACH, June 2008
+! Description    : Mass balance calculation for each layer.
+!
+! Extra info     : - First version created by S. Gong Jul 08 1994 for CAM
+!                    Method:
+!                     1. For each level, compute the falling distance in the
+!                        time step far(I)
+!                     2. Check the layer thichness below the level and determine
+!                        which level it will land
+!                     3. Add the mass to the level
+!
+!                  - Vectorized the whole program and add working spaces.
+!                    (S. Gong, Jan 19, 1996)
+!                  
+!                  - Algorithm completely rewritten (P.A. Makar, July /
+!                    August 2011) to track top and bottom layer interface
+!                    fall velocities and remap the mass to the original
+!                    layer structure
+!
+! Arguments:  IN
+!
+!                pdepv   -> gravitational settling velocity
+!                adt2    -> advection time ste
+!                thlev   -> Layer thickness [m]
+!                nrem    -> tendency: 1 for dry deposition, 2 for below-cloud, 3 for in-cloud
+!                il1     -> minimum index for F_chm_ni
+!                il2     -> maximum index for F_chm_ni
+!                F_chm_ni-> number of longitude grid points
+!                ilev    -> no. z-direct. vertical levels
+!                ntr     -> total number of trace substances (gases and aerosols)
+!                dshj    -> Sigma difference of bottom and top of a layer
+!                pressg  -> Grid row of surface pressure [Pa]
+!                isize   -> size bin number for aerosols
+!                ntp     -> Number of aerosol types
+!                iae1    -> first aerosol bin tracer
+!
+!             IN/OUT
+!
+!                RTALL   -> tracer tendency for each layer as input
+!                           the net tracer tendency by taking the downward transport
+!                           from layers above into consideration. output
+!                GDREM   -> total removal tendency
+!                XROW    -> species concentrations
+!                MASSDEPO  -> deposited mass
+!
+!============================================================================
+
+subroutine mach_cam_tenddist (RTALL, pdepv, adt2, thlev, nrem, il1, il2, F_chm_ni, ilev, &
+                              ntr, dshj, pressg, GDREM, isize, ntp, iae1, &
+                              lev, xrow, rho, oldtopsp, oldbotsp, massdepo)
+   implicit none
+
+   integer, intent(in)    :: F_chm_ni, ilev, ntr, isize, lev
+   integer, intent(in)    :: nrem, il1, il2, ntp, iae1
+   real,    intent(in)    :: adt2
+   real,    intent(in)    :: pdepv(F_chm_ni, ilev, isize), thlev(F_chm_ni, ilev)
+   real,    intent(in)    :: dshj(F_chm_ni, ilev), pressg(F_chm_ni)
+   real,    intent(in)    :: oldbotsp(F_chm_ni, ilev), oldtopsp(F_chm_ni, ilev)
+   real,    intent(inout) :: rtall(F_chm_ni, ilev, ntr), gdrem(F_chm_ni, ntr, 3)
+   real,    intent(inout) :: xrow(F_chm_ni,lev,ntr)
+   real,    intent(in)    :: rho(F_chm_ni, ilev)
+   real*8,  intent(out)   :: massdepo(F_chm_ni,ntp*isize)
+! local variables
+   integer :: nt, n, np, l, i, ll1, np2, ll2, k
+   real*8  :: dhl
+   real*8  :: xrown(F_chm_ni,ilev,ntp*isize)
+   real*8  :: xrownew(ilev,ntp*isize),xrowold(ilev,ntp*isize),xrowoldbu(ilev,ntp*isize)
+   real*8  :: oldtop(F_chm_ni,ilev), oldbot(F_chm_ni,ilev),zold(F_chm_ni,ilev)
+   real*8  :: newz(F_chm_ni, ilev)
+   real*8  :: masstrans, massdep
+   real*8  :: s1, s2, s3, s4, s5, den
+   real*8  :: column_old(F_chm_ni), column_new(F_chm_ni), columncheck(F_chm_ni)
+   real*8  :: checkmax
+   real*8  :: sumcheck(F_chm_ni, ilev), sumcheckmax
+   real*8  :: minstep(F_chm_ni,isize), dt(F_chm_ni,isize)
+   integer :: nsteps(F_chm_ni,isize)
+   real*8, dimension(ilev) :: z1,z2,z3,z4,b1,b2,b3,b4
+   real*8, dimension(ilev,isize) :: znew,l1,l2,l3,l4
+   real*8, dimension(isize) :: fz
+   real :: fluxout(ntp),fluxout_step
+   real*8 :: colold,colnew,ratio
+   real*8, parameter :: small = 1.D-20   
+   real*8 :: dtmin
+   logical :: negflag
+!   integer :: imin,nmin
+!  This version interpolates in mass/unit volume units, not mass mixing ratio
+!
+       xrownew  = 0.0d0
+       massdepo = 0.0d0
+!
+! Assign layer values to double precision:
+      oldtop = dble(oldtopsp)
+      oldbot = dble(oldbotsp)
+      do i=1,f_chm_ni
+       zold(i,ilev) = oldbot(i,ilev)
+       zold(i,1) = oldtop(i,1)
+      end do
+      do l = 2,ilev-1
+        do i = 1,f_chm_ni
+          zold(i,l) = 0.5* (oldtop(i,l)+oldbot(i,l))
+        end do
+      end do
+!
+!  Determine tentative minimum step size:
+!
+      minstep = 1.D6
+!  Find minimum timestep for the column at each particle size 
+      do l = 1, ilev
+          do n=1,isize
+          do i = il1, il2
+              minstep(i,n) = min(minstep(i,n), 0.5D0*(oldtop(i,l)-oldbot(i,l))/dble(pdepv(i,l,n)) )
+              minstep(i,n) = min(minstep(i,n), dble(adt2))
+          end do
+        end do
+      end do
+!
+!  Determine final minimum step size:
+!
+      dtmin = 1.D6
+      do n=1,isize
+        do i = il1, il2
+!  Substeps per model step:
+           nsteps(i,n) = int(adt2/real(minstep(i,n))) + 1
+!  size of substep in seconds:
+           dt(i,n) = dble(adt2) / dble(nsteps(i,n))
+           dtmin = min(dt(i,n),dtmin)
+        end do
+      end do
+!
+! Note that 1/2 the time required to transit the
+! layer for the fastest moving particles has been chosen as the
+! internal timestep. All particles of a given size will therefore
+! remain in the same layer that they started in, which makes the 
+! backtrajectory calculation trivial for any given particle 
+! size.  The backtrajectories all result in origin points higher
+! than the destinations, but within the same layer as the destinations.
+!
+!
+! For each column:
+!
+      do i = il1, il2 
+         fluxout = 0.0
+! Assign species invariant layer heights:
+            do l = 2,ilev
+              z2(l) = zold(i,l-1)
+              z1(l) = zold(i,l)
+            end do
+! Set back-trajectory location for each particle size:
+!  Note that zold at the model top will defacto be above the model top
+!  in this configuration.
+!  fz is the fraction of the top layer replaced by incoming mass from above, 
+!  assumed small.
+        do n = 1,isize
+            do l = 1,ilev
+              znew(l,n) = zold(i,l) + dt(i,n) * pdepv(i,l,n)
+            end do
+            fz(n) = min(max(dt(i,n) * dble(pdepv(i,l,n))/(zold(i,1)-zold(i,2)),0.0D0),1.0D0)
+        end do
+
+! Set size-dependant parameters for back-trajectories (Linear Interpolation):
+!
+        do n = 1,isize
+          do l = 2,ilev
+            l1(l,n) = (znew(l,n) - z1(l))/(z2(l) - z1(l))
+          end do
+        end do
+!
+!  Diagnostics, for checking:
+! Set initial concentrations in column:
+        do n = 1,isize
+         do nt = 1,ntp
+          np2 = isize * (nt - 1) + n
+          np = np2 + (iae1 - 1)
+          do l = 1,ilev
+            xrowold(l,np2) = xrow(i,l+1,np) * rho(i,l)
+          end do
+         end do
+       end do
+       xrowoldbu = xrowold
+! Main advection loop
+       do n = 1,isize
+         do k = 1,nsteps(i,n)
+! For each species:
+          do nt = 1, ntp
+            np2 = isize * (nt - 1) + n
+            np = np2 + (iae1 - 1)
+!
+            do l = 2,ilev 
+              xrownew(l,np2) = max(small, &
+               (xrowold(l-1,np2) - xrowold(l,np2)) * l1(l,n) + xrowold(l,np2) )
+            end do
+!
+!  Model top:  rather than extrapolate above the model top to determine particles coming 
+!  down from above, instead use a weighted combination of the mass coming from above 
+!  (assumed "small") and the mass remaining in the layer:
+!
+            xrownew(1,np2) = fz(n) * small + max(min(1.0D0-fz(n),1.0D0),0.0D0) * xrowold(1,np2)
+!
+!
+!  Mass conservation check in the column:
+             colold = 0.D0
+             colnew = 0.D0
+             fluxout_step = real(dt(i,n))*pdepv(i,ilev,n)*0.5*real(xrownew(ilev,np2)+ xrowold(ilev,np2))
+             do l = 2,ilev
+               colold = colold+ ( zold(i,l-1) - zold(i,l))*0.5*real(xrowold(l-1,np2)+xrowold(l,np2))
+               colnew = colnew+ ( zold(i,l-1) - zold(i,l))*0.5*real(xrownew(l-1,np2)+xrownew(l,np2))
+             end do
+             colnew = colnew + fluxout_step
+             if(colnew > 0.0) then
+               ratio = colold/colnew
+             else
+               ratio = 0.0D0
+             end if
+!
+             do l = 1,ilev
+               xrownew(l,np2) = xrownew(l,np2)*ratio
+             end do
+!
+             fluxout(nt) = fluxout(nt) + fluxout_step
+!
+! Update the concentration array:
+           do l = 1,ilev
+             xrowold(l,np2) = xrownew(l,np2)
+           end do
+! Next particle species
+        end do  ! nt
+! Do the next sub-step:
+        end do !k
+!  place net flux for the particle species over the model time step into
+!  massdepo array.
+!wg test a different diagnose for deposition flux (re-evaluated at the end)
+         do nt = 1,ntp
+          np2 = isize * (nt - 1) + n
+          massdepo(i,np2) = fluxout(nt)
+         end do
+!
+!         end if
+!  Next particle bin size:
+!
+       end do ! n
+       do n = iae1, isize * ntp + (iae1 - 1)
+         np2 = n - iae1 + 1
+         do l = 1, ilev
+           xrown(i,l,np2) = xrownew(l,np2)
+         end do
+       end do ! n
+!
+      end do ! i
+!
+!
+!
+!  Add particle removal tendency to total ground tendency
+!
+      do nt = 1, ntp
+        do n = 1, isize
+          np = isize * (nt - 1) + n + (iae1 - 1)
+          np2 = isize * (nt - 1) + n
+          do i = il1, il2
+             gdrem(i,np,nrem) = gdrem(i,np,nrem) + massdepo(i,np2) / adt2
+          end do
+        end do
+      end do
+!
+!  Add tendency for each layer to net tendency:
+!
+      do n = iae1, isize * ntp + (iae1 - 1)
+         np2 = n - iae1 + 1
+         do l = 1, ilev
+           do i = il1, il2
+             rtall(i,l,n) = rtall(i,l,n) + (xrown(i,l,np2)/rho(i,l) - xrow(i,l+1,n)) / adt2
+           end do
+         end do
+      end do
+!wg
+!wg test a defferent diagnosis of dry deposition flux
+!wg
+       massdepo = 0.0d0
+      do n = iae1, isize * ntp + (iae1 - 1)
+        np2 = n - iae1 + 1
+        do i = il1, il2
+        do l = 1, ilev
+         massdepo(i,np2) = massdepo(i,np2) - rtall(i,l,n) * adt2 * thlev(i,l) * rho(i,l)
+        end do
+        end do
+      end do
+!wg end of test
+!
+!  Assign new concentrations:
+!
+      do n = iae1, isize * ntp + (iae1 - 1)
+         np2 = n - iae1 + 1
+         do l = 1, ilev
+           do i = il1, il2
+              xrow(i,l+1,n) = xrown(i,l,np2)/rho(i,l)
+           end do
+         end do
+      end do
+
+!
+   return
+end

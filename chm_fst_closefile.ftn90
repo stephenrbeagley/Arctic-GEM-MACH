@@ -1,0 +1,38 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_fst_closefile.ftn90
+! Creation       : A. Kallaur & H. Landry - Mars 2007
+! Description    : Close an opened fst file
+!
+! Extra info     :
+!
+! Arguments:
+!            IN
+!              file_unit --> File unit to close
+!              lout      --> File unit for diagnostic outputs
+!
+!==============================================================================
+
+subroutine chm_fst_closefile(file_unit)
+   use chm_utils_mod
+   implicit none
+
+   integer, intent(in) :: file_unit
+   integer             :: err
+
+   integer  fclos, fstfrm
+   external fclos, fstfrm
+
+   err = fstfrm(file_unit)
+   err = fclos(file_unit)
+
+end subroutine chm_fst_closefile

@@ -1,0 +1,504 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_headers_mod.ftn90
+! Creation       : S. Menard July 2008
+! Description    : Modules defining explicit interfaces for mach_cam* subroutines
+!
+! Extra info     :
+!
+!============================================================================
+
+module mach_cam_headers_mod
+   interface
+      subroutine mach_cam_aeroact (ilev, F_chm_ni, il1, il2, RADCLD,          &
+                                   TOTNUM, rhsize, ntr, isize, rhop,     &
+                                   icdn, wrow, XROW, wsub, RCRIT,        &
+                                   nsub, aeronum, zmlwc, roarow, CLSIZE, &
+                                   cam, kount, jlat, nc_out)
+
+         integer  F_chm_ni, ilev, isize, ntr, nsub
+         integer  il1, il2, icdn
+         integer  kount, jlat
+
+         real                       :: cam
+         real,  dimension(:, :)     :: wrow, roarow
+         real,  dimension(:, :, :)  :: rhsize, rhop, aeronum
+         real,  dimension(:, :, :)  :: wsub
+         real,  dimension(:, :, :)  :: zmlwc
+         real,  dimension(:, :)     :: radcld, rcrit
+         real,  dimension(:, :, :)  :: totnum, clsize
+         real,  dimension(:, : , :) :: xrow
+         real,  dimension(:, :)     :: nc_out
+
+     end subroutine mach_cam_aeroact
+
+
+
+   subroutine mach_cam_aerocld (throw, XROW, aeroname, lev, ilev,  F_chm_ni, il1, il2,   &
+                                 rhsize, rhop, AERONUM, ntr, ntp, isize, thlev,      &
+                                 roarow, icdn, zmlwc, nsub, ws, wrow, jlat, cam,     &
+                                 RCRITS, iso2, Q_BIN, ih2o2, irooh, ihno3, inh3,     &
+                                 idust, io3, aerosize, rhop0, iae1, tcldcv, CLD_CHM, &
+                                 adt2, FLUX, WETFLX, fctr, frevp, nswdep, TS2, TS4,  &
+                                 CLTS, CLS4, rhrow, kount, iso4, p3drow, rhorow,     &
+                                 hetselec, chm_aqueous_s, nc_out)
+
+         integer lev, ilev, F_chm_ni, il1, il2, ntr, ntp, isize, icdn, nsub, jlat
+         integer iso2, ih2o2, irooh, ihno3, inh3, idust, io3, iae1, nswdep, kount, iso4, hetselec
+         character (len = *), dimension (:) :: aeroname
+         character (len = *)  chm_aqueous_s
+         real :: cam, adt2
+
+         real, dimension(:, :)      :: throw, rhrow
+         real, dimension(:, :)      :: thlev, roarow, wrow, fctr, p3drow, rhorow, frevp
+         real, dimension(:, :, :)   :: zmlwc
+         real, dimension(:, :, :)   :: rhsize, rhop
+         real, dimension(:, :, :)   :: ws
+         real, dimension(:, :)      :: aerosize
+         real, dimension(:)         :: rhop0
+         real, dimension(:, :)      :: tcldcv
+         real, dimension(:, :, :)   :: xrow
+         real, dimension(:, :, :)   :: q_bin
+         real, dimension(:, :)      :: rcrits
+         real, dimension(:, :, :)   :: cld_chm
+         real, dimension(:, :, :, :):: flux
+         real, dimension(:, :)      :: wetflx
+         real, dimension(:, :, :, :):: ts4, ts2
+         real, dimension(:, :, :)   :: clts, cls4
+         real, dimension(:, :, :)   :: aeronum
+         real, dimension(:, :)      :: nc_out
+
+      end subroutine mach_cam_aerocld
+
+      subroutine mach_cam_aeroprop (ntr, ntp, F_chm_ni, ilev, il1, il2, isize, RHSIZE, aerosize, RHOP, &
+                           rhop0, rhrow, throw, rgrid, AERONUM, TOTMAS, iae1, aeroname,   &
+                           TRWTROW, roarow, shj, pressg, PDIFF, PDEPV)
+
+         integer ntr, ntp, F_chm_ni, ilev, isize
+         integer il1, il2, iae1
+         real,    dimension (:, :)    :: aerosize
+         real,    dimension (:)       :: rhop0
+         real,    dimension(:, :)     :: rhrow, throw
+         real,    dimension (:, :, :) :: rgrid
+         real,    dimension(:, :)     :: roarow, shj
+         real,    dimension (:)       :: pressg
+         character (len = *), dimension (:) :: aeroname
+         real, dimension(:, :, :)     :: totmas, rhsize, rhop, aeronum, trwtrow, pdiff, pdepv
+
+      end subroutine mach_cam_aeroprop
+
+      subroutine mach_cam_cas (t, COLEF, RSCAVG, rhop, roarow, rhsize, pressg, qr,   &
+                         F_chm_ni, ilev, lev, isize, il1, il2, VPR, pdiff, pdepv, shj)
+
+         integer F_chm_ni, ilev, lev, isize
+         integer il1, il2
+         real,  dimension(:, :)    :: t
+         real,  dimension(:, :)    :: roarow, qr, shj
+         real,  dimension(:, :, :) :: rhop, rhsize, pdepv, pdiff
+         real,  dimension(:)       :: pressg
+         real,  dimension(:, :)    :: vpr
+         real,  dimension(:, :, :) :: colef
+         real,  dimension(:, :, :) :: rscavg
+
+      end subroutine mach_cam_cas
+
+      subroutine mach_cam_coagd (F_chm_ni, il1, il2, ilev, throw, isize, roarow, RTCOA, rhsize,        &
+                                TOTMAS, AERONUM, ntr, ntp, f, iae1, kount, BETA, adt2, icoag,     &
+                                irest, XROW, v, jlat, icob, tmin, pdepv, pdiff, mae, igf, igfij,  &
+                                rhop, aerosize)
+
+         integer F_chm_ni, ilev, ntr, isize, mae, irest, jlat, kount
+         integer icob, il1, il2, ntp
+         integer iae1, icoag
+
+         integer, dimension (:) :: igf
+         integer, dimension (:, :, :) :: igfij
+         real    adt2, tmin
+         real, dimension(:, :)        :: throw, roarow, aerosize
+         real, dimension(:, :, :)     :: rhsize, rhop, pdiff, pdepv
+         real, dimension(:, :, :)     :: f
+         real, dimension(:)           :: v
+         real, dimension(:, :, :)     :: rtcoa
+         real, dimension(:, :, :)     :: totmas, aeronum
+         real, dimension(:, :, :, :)  :: beta
+         real, dimension(:, :, :)     :: xrow
+
+      end subroutine mach_cam_coagd
+
+      subroutine mach_cam_condsoa (lev, ilev, F_chm_ni, il1, il2, RGRID, aeronum, XROW, &
+                                 ntr, ntp, roarow, nn, jlat, isize, delt,        &
+                                 RTCOND, iae1, pvol, pcond, rhop0, soa, pressg, t, shj, &
+                                 aerosize)
+
+         integer F_chm_ni, ilev, isize, ntr, lev, ntp, il1, il2, iae1, jlat, nn
+         real    delt
+         real,   dimension(:) :: rhop0, pvol, pressg
+         real,   dimension(:, :) :: soa, t, shj, roarow, aerosize
+         real,   dimension(:, :, :) :: rtcond, pcond, aeronum, rgrid, xrow
+
+      end subroutine mach_cam_condsoa
+
+      subroutine mach_cam_drydepo (ilev, lev, F_chm_ni, il1, il2, seasn, ra, usi, throw, isize, &
+                                   ntp, ntr, adt2, pressg, tmin, thlev, roarow, rhsize,    &
+                                   fland, XROW, PDEPV, RTDRY, dshj, GDREM, iae1, pdiff,    &
+                                   luc, ns, pllp, gamma, aest, DRYFLX, aerosize,  &
+                                   rhorow, oldtop, oldbot)
+
+         integer ilev, lev, F_chm_ni, isize, ntp, ntr, luc, ns
+         integer il1, il2, iae1
+         real    adt2, tmin
+         real,   dimension(:, :)    :: thlev, dshj, roarow
+         real,   dimension(:, :)    :: throw
+         real,   dimension(:, :)    :: fland, ra, usi
+         real,   dimension(:, :, :) :: rhsize, pdiff
+         real,   dimension(:)       :: pressg, seasn
+         real,   dimension(:, :)    :: pllp
+         real,   dimension(:)       :: aest, gamma
+         real,   dimension(:, :)    :: dryflx
+         real,   dimension(:, :, :) :: rtdry
+         real,   dimension(:, :, :) :: gdrem
+         real,   dimension(:, :, :) :: pdepv
+         real,   dimension(:, :, :) :: xrow
+         real,   dimension(:,:)     :: aerosize
+         real,   dimension(:,:)     :: rhorow, oldtop, oldbot 
+      end subroutine mach_cam_drydepo
+
+      subroutine mach_cam_drypar (lev, ilev, F_chm_ni, isize, ntp, il1, il2, ntr, adt2, iae1, &
+                                  luc, ns, throw, thlev, roarow, pdiff, rhsize, fland,        &
+                                  xrow, Pdepv, RTDRY, seasn, ra, usi, pllp, aest, gamma,      &
+                                  aerosize, sub_xrow, sub_r, nbnd, ntr_n)
+
+         integer  lev, ilev, F_chm_ni, isize, ntr, luc, ns
+         integer  ntp, il1, il2, iae1, nbnd, ntr_n
+         real     adt2
+         real,    dimension(:, :, :) :: pdiff, rhsize
+         real,    dimension(:, :)    :: throw
+         real,    dimension(:, :)    :: thlev, roarow
+         real,    dimension(:, :)    :: fland, ra, usi
+         real,    dimension(:, :, :) :: xrow
+         real,    dimension(:, :)    :: pllp
+         real,    dimension(:)       :: seasn
+         real,    dimension(:)       :: gamma, aest
+         real,    dimension(:, :, :) :: rtdry
+         real,    dimension(:, :, :) :: pdepv
+         real,    dimension(:,:)     :: aerosize
+         real,    dimension(:,:,:)   :: sub_xrow
+         real,    dimension(:)       :: sub_r
+
+      end subroutine mach_cam_drypar
+
+      subroutine mach_cam_flux(f_chmbusper, tt, f_chm_ni, nk, fland, glsea, area, udiag, vdiag )
+
+         real, dimension(:) :: f_chmbusper
+         integer f_chm_ni, nk
+         real tt(f_chm_ni, nk)
+         real glsea(f_chm_ni), udiag(f_chm_ni), vdiag(f_chm_ni), area(f_chm_ni)
+         real fland(f_chm_ni, luc)
+
+      end subroutine mach_cam_flux
+
+
+      subroutine mach_cam_intrsec_inner (lev, ilev, F_chm_ni, il1, il2, XROW, ntr, ntp, &
+                                         nn, adt2, rhop0, isize, rtcond, aeronum, v, mae)
+
+         integer lev, ilev, F_chm_ni, ntr, ntp, isize
+         integer il1, il2, nn, mae
+         real    adt2
+         real,   dimension(:, :, :) :: aeronum, rtcond
+         real,   dimension(:)       :: v
+         real,   dimension(:)       :: rhop0
+         real,   dimension(:, :, :) :: xrow
+      end subroutine mach_cam_intrsec_inner
+
+!   subroutine mach_cam_gasdepflux (vd, conc, molwt, delt, rho, ni, accdep)
+!
+!         integer :: ni
+!         real :: molwt, delt
+!         real, dimension(:) :: vd, conc, rho
+!         real, dimension(:) :: accdep
+!      end subroutine mach_cam_gasdepflux
+
+   subroutine mach_cam_intrsec_outer (lev, ilev, F_chm_ni, il1, il2, XROW, RGRID, ntr, ntp, iae1, &
+                                nn, adt2, rhop0, isize, rtcond, aeronum, v, mae, pressg, &
+                                t, shj, roarow, aerosize)
+
+
+         integer lev, ilev, F_chm_ni, ntr, ntp, isize
+         integer il1, il2, iae1, nn, mae
+         real    adt2
+         real,   dimension(:, :, :) :: aeronum, rtcond
+         real,   dimension(:)       :: v
+         real,   dimension(:)       :: rhop0
+         real,   dimension(:, :)    :: t
+         real,   dimension(:)       :: pressg
+         real,   dimension(:, :)    :: roarow, shj
+         real,   dimension(:, :)    :: aerosize
+         real,   dimension(:, :, :) :: xrow
+         real,   dimension(:, :, :) :: rgrid
+
+      end subroutine mach_cam_intrsec_outer
+
+      subroutine mach_cam_intrsec1_inner(lev, ilev, F_chm_ni, il1, il2, XROW, ntr, ntp, isize, &
+                                    daqchm, aeronum, rmass)
+
+         integer lev, ilev, F_chm_ni, ntr, isize
+         integer il1, il2, ntp
+         real,   dimension(:, :, :) :: daqchm, aeronum, xrow, rmass
+
+      end subroutine mach_cam_intrsec1_inner
+
+
+
+      subroutine mach_cam_intrsec1_outer (lev, ilev, F_chm_ni, il1, il2, XROW, ntr, ntp, iae1, &
+                                 isize, rhopd, daqchm, aerosize, q_bin, rcrit, iswitch)
+
+         integer lev, ilev, F_chm_ni, ntr, ntp, isize
+         integer il1, il2, iae1, iswitch
+         real,    dimension(:, :, :) :: daqchm
+         real,    dimension(:, :, :) :: rhopd
+         real,    dimension(:, :)    :: aerosize
+         real,    dimension(:, :, :) :: xrow
+         real,    dimension(:, :, :) :: q_bin
+         real,    dimension(:, :)    :: rcrit
+
+      end subroutine mach_cam_intrsec1_outer
+
+      subroutine mach_cam_main (ilev, lev, F_chm_ni, il1, il2, jlat, throw, rhrow, lon, XROW,   &
+                                pressg, shj, it, ITR, rsfrow, DLEV, wrow, irest,      &
+                                tcszrow, cszrow, tracg, ntr, ntp, kount, luc, aerosize,    &
+                                aeroname, ohrow, no3row, nsub, ID, cldcv, zmlwc,    &
+                                qr, TRWTROW, roarow, rhop0, RTCOA, RTICLD, RTBCLD, RTDRY,  &
+                                thlev, dshj, JD, ih2s, idms, iso2, iso4, iae1, icam, icdn, &
+                                rtso2, rtdms, rth2s, fland, RTNUCL, BETA, wpevpa, wrscav,  &
+                                coagfr, pvol, tmin, ns, pllp, aest, gamma, soa, seasn, ra, &
+                                usi, igf, CONDNU, igfij, TTCOND, ih2o2, irooh, ihno3,      &
+                                inh3, idust, io3, TCLDCV, CLD_CHM, fctr, frevp, wetflx,    &
+                                nswdep, TS2, TS4, CLTS, CLS4, p3drow, rhorow, hetselec,    &
+                                DRYFLX, chm_aqueous_s, pbltrow, uu, vv, shtj, zfprec, qrow,&
+                                oldtop, oldbot, nc_out, aeronum)
+
+         integer ilev, lev, F_chm_ni, il1, il2, jlat, it
+         integer ntr, ntp, luc, nsub, lon, ns
+         integer irest, kount
+         integer iso2, iso4, iae1, icam
+         integer icdn, hetselec
+         integer ih2o2, irooh, ihno3, inh3, idust, io3, nswdep
+         integer ih2s, idms
+         integer, dimension(:) :: igf
+         integer, dimension(:, :, :) :: igfij
+         real     tmin
+         real,  dimension(:, :)     :: throw, rhrow, shtj, qrow
+         real,  dimension(:, :)     :: shj, dshj, wrow, soa, roarow, thlev, zfprec
+         real,  dimension(:, :)     :: wpevpa, wrscav, fctr, frevp, p3drow, rhorow
+         real,  dimension(:)        :: pressg, seasn, pbltrow
+         real,  dimension(:, :, :)  :: tracg
+         real,  dimension(:, :)     :: rsfrow
+         real,  dimension(:, :, :)  :: cldcv, zmlwc, qr, rtso2
+         real,  dimension(:, :)     :: aerosize
+         real,  dimension(:)        :: rhop0
+         real,  dimension(:)        :: pvol(:)
+         real,  dimension(:, :, :)  :: coagfr
+         real,  dimension(:, :)     :: pllp
+         real,  dimension(:)        :: aest, gamma
+         real,  dimension(:, :)     :: ra, usi, fland
+         real,  dimension(:, :)     :: ohrow, no3row, rth2s, rtdms
+         real,  dimension(:)        :: tcszrow, cszrow
+         real,  dimension(:,:)      :: oldtop, oldbot
+         real,  dimension(:,:)      :: nc_out
+         character (len = *), dimension (:) :: aeroname
+         character (len = *)           chm_aqueous_s
+         integer id, jd, dlev
+         real, dimension(:, :)      :: rtnucl
+         real, dimension(:, :, :)   :: trwtrow
+         real, dimension(:, :, :)   :: rtcoa, rtbcld, rticld, rtdry, ttcond
+         real, dimension(:, :, :)   :: beta
+         real, dimension(:, :, :)   :: cld_chm
+         real, dimension(:, :)      :: wetflx
+         real, dimension(:, :, :, :):: ts2, ts4
+         real, dimension(:, :, :)   :: clts, cls4
+         real, dimension(:, :)      :: dryflx
+         integer  itr
+         real, dimension(:, :)      :: tcldcv, uu, vv
+         real, dimension(:, :, :)   :: xrow
+         real                       :: condnu(:)
+         real, dimension(:, :, :)   :: aeronum
+
+      end subroutine mach_cam_main
+
+
+      subroutine mach_cam_pre(AEROSIZE1, PVOL, IGF, IGFIJ, COAGFR, IAER_SP, aerochem_np, aero_nsize, gn_aerochem, nk)
+
+         integer  aerochem_np, aero_nsize, gn_aerochem, nk
+         integer, dimension (:)       :: igf
+         integer, dimension (:, :, :) :: igfij
+         integer, dimension (:, :)    :: iaer_sp
+         real, dimension (:, :)       :: aerosize1
+         real, dimension (:)          :: pvol
+         real, dimension (:, :, :)    :: coagfr
+
+      end subroutine mach_cam_pre
+
+      subroutine mach_cam_rain (t, QR, rhsize, pdepv, pressg, shj, roarow, pdiff,    &
+                               XROW, RTBCLD, rhop, cf, cc2d, ntr, ntp, isize, lev,   &
+                               iae1, ilev, F_chm_ni, il1, il2, adt2, iso2, ih2o2, irooh,  &
+                               ihno3, inh3)
+
+         integer F_chm_ni, ilev, ntr, isize, lev
+         integer il1, il2, ntp, iae1
+         integer iso2, ih2o2, irooh, ihno3, inh3
+         real    adt2
+         real, dimension (:, :)    :: cc2d, t, cf
+         real, dimension (:)       :: pressg
+         real, dimension (:, :)    :: shj, roarow
+         real, dimension (:, :, :) :: pdepv, pdiff
+         real, dimension (:, :, :) :: rhsize, rhop
+         real, dimension (:, :, :) :: rtbcld
+         real, dimension (:, :, :) :: qr
+         real, dimension (:, :, :) :: xrow
+
+      end subroutine mach_cam_rain
+
+      subroutine mach_cam_scaveng (throw, XROW, cf, evpfac, lev, ilev, F_chm_ni, il1, il2,   &
+                                    shj, pressg, pdepv, qr, RTBCLD, rhsize, rhop, dshj, &
+                                    iae1, pdiff, tmin, ntr, ntp, isize, thlev, adt2,    &
+                                    GDREM, roarow, WETFLX, FLUX, nswdep, iso2, ih2o2,   &
+                                    irooh, ihno3, inh3, aeroname, jlat, TS2, TS4, CLTS, &
+                                    CLS4, iso4)
+
+         integer  lev, ilev, F_chm_ni, il1, il2, iae1
+         integer  ntr, ntp, isize, nswdep, iso2, ih2o2
+         integer  irooh, ihno3, inh3, jlat, iso4
+         real     tmin, adt2
+         real,    dimension(:, :)    :: throw
+         real,    dimension(:, :)    :: cf, evpfac, thlev, shj, dshj, roarow
+         real,    dimension(:, :, :) :: pdepv, pdiff, rhsize, rhop
+         real,    dimension(:)       :: pressg
+         real,    dimension(:, :, :) :: qr
+         character (len = *), dimension (:) :: aeroname
+         real, dimension (:, :, :, :)       :: ts2, ts4
+         real, dimension (:, :, :)          :: clts
+         real, dimension (:, :, :)          :: xrow, gdrem
+         real, dimension (:, :, :)          :: rtbcld
+         real, dimension (:, :)             :: wetflx
+         real, dimension (:, :, :, :)       :: flux
+         real, dimension (:, :, :)          :: cls4
+
+      end subroutine mach_cam_scaveng
+
+      subroutine mach_cam_sfss (TRAC, dshj, F_chm_ni, lev, ilev, i_ss, t, ntr, nn, ntp, isize, luc, &
+                                aerosize, surfwd, rhop0, rsfrow, pressg, gc, fland, fintrow,   &
+                                il1, il2, iae1, irest, flux_L)
+
+         integer  F_chm_ni, lev, ilev, ntr, ntp, isize, luc
+         integer  :: i_ss, nn, il1, il2, iae1, irest
+         real , dimension(:)       :: gc, surfwd, pressg
+         real, dimension (:, :)    :: dshj, t
+         real, dimension (:, :)    :: aerosize
+         real, dimension (:)       :: rhop0
+         real, dimension (:, :)    :: fland
+         real, dimension (:, :)    :: rsfrow
+         real, dimension (:, :, :) :: fintrow
+         real, dimension (:, :, :) :: trac
+         logical                   :: flux_L
+
+      end subroutine mach_cam_sfss
+
+      subroutine mach_cam_sulfate (lev, ilev, F_chm_ni, il1, il2, ih2s, idms, iso2, iso4, RGRID, &
+                                   aeronum, XROW, ntr, icomp, roarow, pressg, t, rh, shj,   &
+                                   ohrow, no3row, nn, rhsize, aerosize, tcszrow, cszrow,    &
+                                   isize, delt, RTNUCL, rhop0, RTCOND, rtso2, rtdms, rth2s, &
+                                   cldcv, iae1, pvol, tmin, PCOND, cam, mae, condnu, TTCOND)
+
+         integer  lev, ilev, F_chm_ni, ntr, icomp, isize
+         integer  il1, il2, iae1, iso2, iso4, nn, mae
+         integer  ih2s, idms
+         real     cam
+         real     delt, tmin
+         real,    dimension(:, :, :) :: cldcv
+         real,    dimension(:, :, :) :: aeronum, rhsize
+         real,    dimension(:)       :: rhop0, pvol
+         real,    dimension(:)       :: pressg
+         real,    dimension(:, :)    :: t, rh
+         real,    dimension(:, :)    :: shj, roarow
+         real,    dimension(:, :, :) :: rtso2
+         real,    dimension(:, :)    :: aerosize
+         real,    dimension(:)       :: tcszrow, cszrow
+         real,    dimension(:, :)    :: ohrow, no3row, rtdms, rth2s
+         real,    dimension(:)       :: condnu
+         real,    dimension(:, :, :) :: rtcond, pcond
+         real,    dimension(:, :)    :: rtnucl
+         real,    dimension(:, :, :) :: rgrid, ttcond
+         real,    dimension(:, :, :) :: xrow
+
+      end subroutine mach_cam_sulfate
+
+      subroutine mach_cam_tenddist (RTALL, pdepv, adt2, thlev, nrem, il1, il2, F_chm_ni, ilev, &
+                              ntr, dshj, pressg, GDREM, isize, ntp, iae1, &
+                              lev, xrow, rho, oldtopsp, oldbotsp, massdepo)
+
+         integer  F_chm_ni, ilev, ntr, isize, lev
+         integer  nrem, il1, il2, ntp, iae1
+         real     adt2
+         real,    dimension(:, :, :) :: pdepv
+         real,    dimension(:, :)    :: thlev
+         real,    dimension(:, :)    :: dshj
+         real,    dimension(:)       :: pressg
+         real,    dimension(:,:)     :: oldbotsp, oldtopsp
+         real,    dimension(:, :, :) :: rtall, gdrem
+         real,    dimension(:,:,:)   :: xrow
+         real,    dimension(:,:)     :: rho
+         real*8,  dimension(:,:)     :: massdepo
+
+      end subroutine mach_cam_tenddist
+
+      subroutine mach_pm_chem(F_CHMBUSDYN, f_chmbusvol, nu, gz_chm, gz_k, qc, p2d, tt, hu,   &
+                        rho, cx, f_chm_ni, nk, luc, f_step, f_j, f_cpu, frcld_ck, frcld_cs,  &
+                        psfc, l_prc_flx, s_prc_flx, ppro_kfc, l_kfc_flx, s_kfc_flx,          &
+                        ppro, pevp, sig, fws, fland,                                         &
+                        pbltrow, glsea, udiag, vdiag, seasn, ra, ustar_in, oldso4, uu, vv,   &
+                        wd_hso3, wd_hpxa, wd_rpxa, wd_so4, wd_no3, wd_nh4,                   &
+                        wd_cat, wd_hco3, wd_h, wd_sslt, wd_ocbn, wd_h2o, wd_dust,            &
+                        wd_blc, wd_pcbn, dd_pso4, dd_poc, dd_pno3, dd_pnh4, dd_pcm,          &
+                        dd_pec, dd_ppc, dd_pss,       &
+                        nc_out, trwtrow, thlevout, aeronum )
+
+         real, dimension(:) :: f_chmbusdyn
+         real, dimension(:) :: f_chmbusvol
+         integer  f_chm_ni, nk, f_step
+         integer  f_j, f_cpu
+         real  nu(f_chm_ni, nk), gz_chm(f_chm_ni, nk), gz_k(f_chm_ni, nk), qc(f_chm_ni, nk)
+         real  hu(f_chm_ni, nk), tt(f_chm_ni, nk), p2d(f_chm_ni, nk), rho(f_chm_ni, nk), cx(f_chm_ni)
+         real  uu(f_chm_ni, nk), vv(f_chm_ni, nk)
+         real glsea(f_chm_ni,nk), udiag(f_chm_ni,nk), vdiag(f_chm_ni,nk), psfc(f_chm_ni,nk)
+         real seasn(f_chm_ni,nk), ustar_in(f_chm_ni,nk), pbltrow(f_chm_ni,nk)
+         real frcld_ck(f_chm_ni,nk), frcld_cs(f_chm_ni,nk), ppro(f_chm_ni,nk)
+         real pevp(f_chm_ni,nk), l_prc_flx(f_chm_ni,nk), s_prc_flx(f_chm_ni,nk)
+         real sig(f_chm_ni,nk), fws(f_chm_ni,nk), oldso4(f_chm_ni,nk)
+         real fland(f_chm_ni,luc), ra(f_chm_ni,luc)
+         real wd_hso3(f_chm_ni), wd_hpxa(f_chm_ni), wd_rpxa(f_chm_ni)
+         real wd_so4(f_chm_ni), wd_no3(f_chm_ni), wd_nh4(f_chm_ni)
+         real wd_cat(f_chm_ni), wd_hco3(f_chm_ni), wd_h(f_chm_ni)
+         real wd_sslt(f_chm_ni), wd_ocbn(f_chm_ni), wd_h2o(f_chm_ni), wd_dust(f_chm_ni)
+         real wd_blc(f_chm_ni), wd_pcbn(f_chm_ni)
+         real dd_pso4(f_chm_ni), dd_pss(f_chm_ni), dd_poc(f_chm_ni)
+         real dd_pno3(f_chm_ni), dd_pnh4(f_chm_ni), dd_pcm(f_chm_ni)
+         real dd_pec(f_chm_ni), dd_ppc(f_chm_ni)
+         real ppro_kfc(f_chm_ni,nk), l_kfc_flx(f_chm_ni,nk), s_kfc_flx(f_chm_ni,nk)
+         real nc_out(f_chm_ni,nk), trwtrow(f_chm_ni,nk,isize), thlevout(f_chm_ni,nk)
+         real aeronum(f_chm_ni,nk,isize)
+
+
+      end subroutine mach_pm_chem
+
+
+   end interface
+end module mach_cam_headers_mod

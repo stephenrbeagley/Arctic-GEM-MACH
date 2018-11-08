@@ -1,0 +1,192 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet / Project : GEM-MACH
+! Fichier / File   : mach_calc_season.ftn90
+! Creation         : Leiming Zhang - Oct 2000
+! Description      : Define seasonal category according to latitude and month
+!                    based on monthly averaged temperature.
+!
+! Extra Info       : Adapted for GEM-MACH by A.Kallaur and P.A. Beaulieu, Jan 2008
+!                    Adding compatibility with Southern hemisphere by A. Robichaud Nov 2008.
+
+!                    Seasonal categories
+!                    1  midsummer with lush vegetation
+!                    2  autumn with cropland before harvest
+!                    3  lter autumn after frost, no snow
+!                    4  winter, snow on ground and subfreezing
+!                    5  transitional spring with partially green short annuals
+!
+! Arguments:  IN
+!                nis     -> Horiz. Dimensions of Domain
+!                iday    -> Julian day (1-365)
+!                rad_glt -> Radian latitudes of grid cells
+!
+!             OUT
+!                seasn   -> Assigned season descriptors
+!================================================================================================
+
+subroutine mach_calc_season(seasn, rad_glt, nis, iday)
+   use chm_consphychm_mod
+   implicit none
+
+   integer,              intent(in)  :: nis
+   integer,              intent(in)  :: iday
+   real, dimension(nis), intent(in)  :: rad_glt
+   real, dimension(nis), intent(out) :: seasn
+
+
+!  Declare local variables
+   integer              :: i, jjul
+   real                 :: rad_to_deg
+   real, dimension(nis) :: glt
+
+!  Making a local conversion of latitudes obtained from the permanent
+!  bus from radians to decimal degrees.
+   rad_to_deg   = 180.0 / pi
+   glt(1 : nis) = rad_glt(1 : nis) * rad_to_deg
+
+!  Set seasons over the whole domain
+   do  i = 1, nis
+
+!  Modification for validity in SH (shift of 180 days vs NH)
+      if (glt(i) < 0.0) then
+         glt(i) = abs(glt(i))
+         jjul = iday + 180
+         if (jjul >= 366) then
+            jjul = jjul - 365
+         end if
+      else 
+         jjul = iday
+      end if
+
+! December January February
+      if (jjul <= 59 .or. jjul >= 335) then
+
+         if (glt(i) <= 30.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 30.0 .and. glt(i) <= 35.0) then
+            seasn(i) = 5.0
+         else if (glt(i) > 35.0) then
+            seasn(i) = 4.0
+         end if
+
+! March
+      else if (jjul >= 60 .and. jjul <= 90)  then
+
+         if (glt(i) <= 35.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 35.0 .and. glt(i) <= 40.0) then
+            seasn(i) = 5.0
+         else if (glt(i) > 40.0) then
+            seasn(i) = 4.0
+         end if
+
+! April
+      else if (jjul >= 91 .and. jjul <= 120) then
+
+         if (glt(i) <= 35.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 35.0 .and. glt(i) <= 50.0) then
+            seasn(i) = 5.0
+         else if (glt(i) > 50.0) then
+            seasn(i) = 4.0
+         end if
+
+! May
+      else if (jjul >= 121 .and. jjul <= 151) then
+
+         if (glt(i) <= 45.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 45.0 .and. glt(i) <= 60.0) then
+            seasn(i) = 5.0
+         else if (glt(i) > 60.0) then
+            seasn(i) = 4.0
+         end if
+
+! June
+      else if (jjul >= 152 .and. jjul <= 181) then
+
+         if (glt(i) <= 55.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 55.0 .and. glt(i) <= 70.0) then
+            seasn(i) = 5.0
+         else if (glt(i) > 70.0) then
+            seasn(i) = 4.0
+         end if
+
+! July
+      else if (jjul >= 182 .and. jjul <= 212) then
+
+         if (glt(i) <= 70.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 70.0 .and. glt(i) <= 80.0) then
+            seasn(i) = 5.0
+         else if (glt(i) > 80.0) then
+            seasn(i) = 4.0
+         end if
+
+! August
+      else if (jjul >= 213 .and. jjul <= 243) then
+
+         if (glt(i) <= 55.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 55.0 .and. glt(i) <= 80.0) then
+            seasn(i) = 2.0
+         else if (glt(i) > 80.0) then
+            seasn(i) = 4.0
+         end if
+
+! September
+      else if (jjul >= 244 .and. jjul <= 273) then
+
+         if (glt(i) <= 35.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 35.0 .and. glt(i) <= 65.0) then
+            seasn(i) = 2.0
+         else if (glt(i) > 65.0 .and. glt(i) <= 80.0) then
+            seasn(i) = 3.0
+         else if (glt(i) > 80.0) then
+            seasn(i) = 4.0
+         end if
+
+! October
+      else if (jjul >= 274 .and. jjul <= 304) then
+
+         if (glt(i) <= 35.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 35.0 .and. glt(i) <= 50.0) then
+            seasn(i) = 2.0
+         else if (glt(i) > 50.0 .and. glt(i) <= 65.0) then
+            seasn(i) = 3.0
+         else if (glt(i) > 65.0) then
+            seasn(i) = 4.0
+         end if
+
+! November
+      else if (jjul >= 305 .and. jjul <= 334) then
+
+         if (glt(i) <= 35.0) then
+            seasn(i) = 1.0
+         else if (glt(i) > 35.0 .and. glt(i) <= 40.0) then
+            seasn(i) = 2.0
+         else if (glt(i) > 40.0 .and. glt(i) <= 55.0) then
+            seasn(i) = 3.0
+         else if (glt(i) > 55.0) then
+            seasn(i) = 4.0
+         end if
+
+      end if
+
+   end do
+
+   return
+
+end subroutine mach_calc_season

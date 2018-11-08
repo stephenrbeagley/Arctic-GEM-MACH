@@ -1,0 +1,50 @@
+!
+!==============================================================================================
+!
+! This module defines all the Major point source species that will be eventually
+! used in the model. One integer per specie/field. Do not confuse with the
+! specie master array chm_species_idx_mod. All species here are at one point
+! "connected" to the specie_master array.
+!
+module chm_mjrpts_species_idx_mod
+
+!  There are currently 10 time independent variables associated with the major point
+!  source emissions. They are These are:
+!
+!  LAT  -> Latitude of source stack
+!  LON  -> Longitude of source stack
+!  GIGL -> X(E,W)-coord position on FULL domain
+!  GJGL -> Y(N,S)-coord position on FULL domain
+!  GILC -> X(E,W)-coord position on local MPI domain (tile)
+!  GJLC -> Y(N,S)-coord position on local MPI domain (tile)
+!  HGT  -> Height of emission stack (meters above terrain)
+!  DIA  -> Diameter of top of stack (meters)
+!  TEM  -> Exhaust temperature (Kelvin? Celcius??)
+!  VEL  -> Volume flow rate (m^3/Second?)
+!
+   save
+
+   integer, parameter :: emjpt_stki_ll = 10
+   character(len = 4), dimension(emjpt_stki_ll),                       &
+      parameter :: mjptnmv_stki_list  =                                &
+                     (/'LAT ', 'LON ', 'GIGL', 'GJGL', 'GILC', 'GJLC', &
+                       'HGT ', 'DIA ', 'TEM ', 'VEL '/)
+
+   real, dimension(:), pointer :: mjpt_lat
+   real, dimension(:), pointer :: mjpt_lon
+   real, dimension(:), pointer :: mjpt_gigl
+   real, dimension(:), pointer :: mjpt_gjgl
+   real, dimension(:), pointer :: mjpt_gilc
+   real, dimension(:), pointer :: mjpt_gjlc
+   real, dimension(:), pointer :: mjpt_hgt
+   real, dimension(:), pointer :: mjpt_dia
+   real, dimension(:), pointer :: mjpt_tem
+   real, dimension(:), pointer :: mjpt_vel
+
+
+end module chm_mjrpts_species_idx_mod
+
+
+
+
+

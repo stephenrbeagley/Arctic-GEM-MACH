@@ -1,0 +1,9 @@
+! zeros an array
+      subroutine mach_sat_zero(ni,array)
+      implicit none
+      integer :: ni,i
+      real :: array(ni)
+!
+      array = 0.0
+      return
+      end

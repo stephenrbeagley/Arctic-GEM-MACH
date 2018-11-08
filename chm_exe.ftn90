@@ -1,0 +1,136 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_exe.ftn90
+! Creation       : A. Kallaur, H. Landry, S. Menard - July 2005 and more
+! Description    : Computes the chemical tranformation for a
+!                  list of species and reactions in the atmosphere.
+!
+! Extra info     : The object is the Development of chosen chemical scheme that
+!                  begins here in this subroutine: chemical transformations,
+!                  with this chosen scheme.
+!
+! Arguments:
+!           IN
+!             F_chm_bent_siz    -->    dimension of F_busent
+!             F_chm_bdyn_siz    -->    dimension of F_busdyn
+!             F_chm_bper_siz    -->    dimension of F_busper
+!             F_chm_bvol_siz    -->    dimension of F_bvol_siz
+!             F_busent          -->    entry input field(s) (physics)
+!             F_busdyn          -->    dynamics input field (physics)
+!             F_busper          -->    historic variables for the physics (physics)
+!             F_busvol          -->    physics tendencies and other output
+!                                           fields from the physics (physics)
+!             F_bent_siz        -->    dimension of F_busent   (physics)
+!             F_bdyn_siz        -->    dimension of F_busdyn   (physics)
+!             F_bper_siz        -->    dimension of F_busper   (physics)
+!             F_bvol_siz        -->    dimension of F_bvol_siz (physics)
+!             F_dt              -->    timestep (sec.)
+!             F_j               -->    slice number
+!             F_step            -->    timestep number
+!             F_cpu             -->    cpu number executing slice "F_j"
+!             F_p_ni            -->    horizontal running length (physics)
+!             F_chm_ni          -->    horizontal running length (chemistry)
+!             F_Nk              -->    vertical dimension
+!
+!            IN/OUT
+!             F_chmbusent       -->   Entry input field(s)  (chemical)
+!             F_chmbusdyn       -->   Dynamics input field  (chemical)
+!             F_chmbusper       -->   Historic variables for the chemistry
+!             F_chmbusvol       -->   Chemical tendencies and other output
+!                                          fields from the physics
+!
+!=============================================================================
+
+
+subroutine chm_exe(F_CHMBUSENT   , F_CHMBUSPER    , F_CHMBUSDYN    , F_CHMBUSVOL     , &
+                   F_chm_bent_siz, F_chm_bdyn_siz , F_chm_bper_siz , F_chm_bvol_siz  , &
+                   F_chm_bdyn_top, F_chm_bper_top , F_chm_bvol_top , F_chm_bent_top  , &
+                   F_busent      , F_busdyn       , F_busper       , F_busvol        , &
+                   F_bent_siz    , F_bdyn_siz     , F_bper_siz     , F_bvol_siz      , &
+                   F_dt          , F_j            , F_step         , F_cpu           , &
+                   F_p_ni        , F_chm_ni       , F_Nk           , F_busdyn_o      , &
+                   istcond       , iconvec         )
+   use chm_utils_mod
+   use chm_nml_mod
+   use chm_species_info_mod
+   use chm_phyvar_mod
+   use mach_headers_mod, only: mach_main
+   use chm_datime_mod, only: chm_time_delay
+   implicit none
+!  Arguments variables
+   integer, intent(in)           :: F_chm_bent_top, F_chm_bdyn_top
+   integer, intent(in)           :: F_chm_bper_top, F_chm_bvol_top
+   integer, intent(in)           :: F_chm_bent_siz, F_chm_bdyn_siz
+   integer, intent(in)           :: F_chm_bper_siz, F_chm_bvol_siz
+   real   , intent(inout),target :: F_chmbusent(F_chm_bent_siz)
+   real   , intent(inout),target :: F_chmbusdyn(F_chm_bdyn_siz)
+   real   , intent(inout),target :: F_chmbusper(F_chm_bper_siz)
+   real   , intent(inout),target :: F_chmbusvol(F_chm_bvol_siz)
+   integer, intent(in)           :: F_bent_siz, F_bdyn_siz
+   integer, intent(in)           :: F_bper_siz, F_bvol_siz
+   real   , intent(in)   ,target :: F_busent  (F_bent_siz)
+   real   , intent(in)   ,target :: F_busdyn  (F_bdyn_siz)
+   real   , intent(in)   ,target :: F_busdyn_o(F_bdyn_siz)
+   real   , intent(inout)   ,target :: F_busper  (F_bper_siz)
+   real   , intent(in)   ,target :: F_busvol  (F_bvol_siz)
+   real   , intent(in)           :: F_dt
+   integer, intent(in)           :: F_cpu, F_j, F_step, F_p_ni, F_chm_ni, F_Nk
+   integer, intent(in)           :: istcond, iconvec
+
+!  Local variables
+   logical             :: local_dbg
+   integer             :: n_start
+
+   current_time_step=F_step
+   notre_J= F_J
+   notre_cpu=F_cpu
+
+   local_dbg = (.false. .or. global_debug)
+
+   n_start = nint(chm_time_delay / dble(F_dt))
+
+
+   if (F_step <= 1) then
+      chm_timestep = chm_step_factor * F_dt
+   endif
+
+
+   if (F_step == 0 .or. F_step > n_start ) then
+      if (mod(F_step, chm_step_factor) == 0) then
+         if ((chm_lun_out.gt.0).and.(notre_cpu.eq.1).and.(F_j.eq.1)) &
+                        write(chm_Lun_out,1000) 'CHEMISTRY STEP',F_step
+
+      call mach_main(F_CHMBUSENT     , F_CHMBUSPER      , F_CHMBUSDYN    , F_CHMBUSVOL     , &
+                     F_chm_bent_siz  , F_chm_bdyn_siz   , F_chm_bper_siz , F_chm_bvol_siz  , &
+                     F_chm_bdyn_top  , F_chm_bper_top   , F_chm_bvol_top , F_chm_bent_top  , &
+                     F_busent        , F_busdyn         , F_busper       , F_busvol        , &
+                     F_bent_siz      , F_bdyn_siz       , F_bper_siz     , F_bvol_siz      , &
+                     F_j             , F_step           , F_cpu          , F_p_ni          , &
+                     F_chm_ni        , F_Nk             , F_busdyn_o     , istcond         , &
+                     iconvec)
+         else
+           if (local_dbg) then
+             write (chm_lun_out, *) 'No chemistry for timestep: F_step & chm_step_factor = ', F_step, chm_step_factor
+           endif
+         endif
+     else
+         if (local_dbg) then
+            write(chm_lun_out, *) 'Chemistry not activated before timestep: F_step = ',n_start+1
+         end if
+     end if
+
+1000 format(/'PERFORM A ',a,' (step= ',i6,')'/52('='))
+
+return
+
+end subroutine chm_exe
+

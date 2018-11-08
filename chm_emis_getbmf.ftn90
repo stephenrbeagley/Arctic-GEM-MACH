@@ -1,0 +1,143 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet /Project : GEM-MACH
+! Fichier/File    : chm_get_bmf_emis_fld.ftn90
+! Creation        : A. Kallaur, H. Landry, S. Menard - Novembre 2006
+! Description     : Read from file (if need be) the surface
+!                   biogenic (non time dependant standard emissions rates modified in the
+!                   model with dependancy on met. vars. read only if model time step = 0)
+!                   and anthropogenic(time dependant) emission sources.
+!
+! Extra info      :
+!
+! Arguments:
+!            IN
+!              chm_bper_len   --> bus length (entire length)
+!              chm_bper_siz   --> Length of "slab j"
+!              pe_file        --> bmf input file
+!              etype          --> emission type (area, biog, ...)
+!            OUT
+!              chm_busper3d   --> chemistry permanent bus
+!
+!==============================================================================
+subroutine chm_emis_getbmf(CHM_BUSPER3D, chm_bper_len,  &
+                                 chm_bper_siz, pe_file, etype)
+   use chm_utils_mod
+   use chm_ptopo_grid_mod
+   use chm_mjrpts_species_idx_mod
+   use chm_headers_mod, only: chm_emis_assignfld
+   implicit none
+
+! Arguments
+!
+   integer,             intent(in) :: chm_bper_len, chm_bper_siz
+   character (len = *), intent(in) :: etype
+   character (len = *), intent(in) :: pe_file
+   real,                intent(in) :: chm_busper3D(chm_bper_len)
+
+! Declare local variables
+
+   integer      length, i
+   integer, allocatable, dimension(:) ::      &
+            bmfni    , bmfnj     , bmfnk    , &
+            bmfhgrid , bmfvgrid  ,            &
+            bmfdatyp , bmfvtime1 , bmfvtime2, &
+            bmfscrap , bmfscrap1 , bmfscrap2, &
+            bmfscrap3, bmfscrap4 , bmfscrap5, &
+            bmfscrap8, bmfscrap9
+   character (len = 4), allocatable, dimension(:) :: bmfnom
+   logical                                :: local_dbg
+
+! Declare external functions
+
+   integer  bmf_gobe
+   external bmf_gobe
+!
+! Set local debug switch
+!
+   local_dbg = (.false. .or. global_debug)
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Enter chm_emis_getbmf'
+      write(chm_lun_out, *) 'etype = ', etype
+      write(chm_lun_out, *) 'chm_l_ni, chm_l_nj : ', chm_l_ni, chm_l_nj
+   endif
+!
+! Proceed will BMF intialisation, readin (gobe), cataloguing and retreival
+!
+   call bmf_init
+   length = bmf_gobe(pe_file)
+!
+! Build a catalog to allow proper dimensionning of some variables
+!
+   allocate (bmfnom   (length), bmfni     (length), bmfnj    (length), &
+             bmfnk    (length), bmfvtime1 (length), bmfvtime2(length), &
+             bmfhgrid (length), bmfvgrid  (length),                    &
+             bmfdatyp (length), bmfscrap  (length),                    &
+             bmfscrap1(length), bmfscrap2 (length), bmfscrap3(length), &
+             bmfscrap4(length), bmfscrap5 (length), bmfscrap8 (length), &
+             bmfscrap9(length))
+
+    call bmf_catalog  ( bmfnom   , bmfni    , bmfscrap , bmfscrap1, &
+                        bmfnj    , bmfscrap2, bmfscrap3, bmfnk    , &
+                        bmfscrap4, bmfscrap5, bmfvtime1, bmfvtime2, &
+                        bmfhgrid , bmfvgrid , bmfdatyp , bmfscrap8, &
+                        bmfscrap9)
+
+! Check that all dimensions are correct
+
+   do i=1, length
+      if ((bmfni(i) /= chm_l_ni) .or. (bmfnj(i) /= chm_l_nj)) then
+         write(chm_lun_out, *) 'chm_l_ni, chm_l_nj : ', chm_l_ni, chm_l_nj
+         write(chm_lun_out, *) 'For specie        : ', i, ' name: ', bmfnom(i)
+         write(chm_lun_out, *) 'bmfni, bmfnj       : ', bmfni(i), bmfnj(i)
+         write(chm_lun_out, *) 'Mismatch of results from BMF_CATALOGUE: bmfn{i, j}'
+         write(chm_lun_out, *) '--------> ABORT <--------'
+         call chm_stop('chm_emis_getbmf', -1)
+      endif
+   enddo
+!
+! Check that the internal list of species (from nml) has
+! a 1<->1 match in the bmf list.
+!
+! Semantic note: It is, of course conceivable that although there is
+! provision for a particular field from the namelist, none is found
+! in the BMF file. This would imply issuing warning message that
+! bmf specie 'x' was not found, and that its field is set to 0.0.
+! However, it will be assumed here that there MUST ba 1<->1 correspondance
+! in the list, since the "entry" program should have taken care
+! of the fact. Therefore, a mismatch implies an ABORT.
+!
+! Go through list of species in BMF storage, and copy the data
+! into the appropriate places in the chemical permanent bus.
+!
+   do i=1, length
+      if (local_dbg) then
+         write(chm_lun_out, *) 'nom, ni, nj, t1, t2', &
+            bmfnom(i), bmfni(i), bmfnj(i), bmfvtime1(i), bmfvtime2(i)
+      endif
+      call chm_emis_assignfld(bmfnom(i), bmfvtime1(i) , bmfvtime2(i),    &
+                            chm_l_ni, chm_l_nj, CHM_BUSPER3D, chm_bper_len, &
+                            chm_bper_siz)
+   enddo ! i=1, length
+
+   deallocate (bmfni    , bmfnj    , bmfnk    , bmfdatyp,  &
+               bmfvtime1, bmfvtime2, bmfnom   , bmfscrap,  &
+               bmfscrap1, bmfscrap2, bmfscrap3, bmfscrap4, &
+               bmfscrap5, bmfscrap8, bmfscrap9)
+
+   call bmf_clear
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Exit  chm_emis_getbmf'
+   endif
+   return
+end
+

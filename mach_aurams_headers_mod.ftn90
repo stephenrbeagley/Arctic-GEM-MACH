@@ -1,0 +1,59 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_aurams_headers_mod.ftn90
+! Creation       : H. Landry, Aout 2008
+! Description    : Explicit interfaces for mach_aurams subroutines
+!
+!
+!============================================================================
+
+
+module mach_aurams_headers_mod
+   interface
+
+      subroutine mach_aurams_calpres (pres, roarow, temp, F_chm_ni, ilev)
+         integer                 :: F_chm_ni, ilev
+         real,   dimension(:, :) :: roarow, temp
+         real,   dimension(:, :) :: pres
+      end subroutine mach_aurams_calpres
+
+
+      subroutine mach_aurams_cldcv2d (cc2d, fnuage, nl, nn)
+         integer nl, nn
+         real, dimension(:, :) :: fnuage, cc2d
+      end subroutine mach_aurams_cldcv2d
+
+      subroutine mach_aurams_cwc_per_bin (q_bin, zmlwc, xrow, rcrit, aeronum, totnum, roarow, icdn, &
+                                          il1, il2, F_chm_ni, ilev, ntr, nsize, kount, jlat)
+         integer il1, il2, F_chm_ni, ilev, nsize, ntr, icdn, kount, jlat
+         real,  dimension(:, :, :) :: zmlwc, xrow
+         real,  dimension(:, :)    :: rcrit, roarow
+         real,  dimension(:, :, :) :: aeronum, totnum, q_bin
+      end subroutine mach_aurams_cwc_per_bin
+
+! This one is too twisted, forgeting it for now...
+!       subroutine mach_aurams_prntrow (fld, name, loc, nlev, loff, F_chm_ni, il1, il2, jlat)
+!          integer nlev, F_chm_ni, loff, il1, il2, jlat
+!          real, dimension(:, :) :: fld
+!          character (len = *)   :: loc, name
+!       end subroutine mach_aurams_prntrow
+
+      subroutine mach_aurams_tsysms (xrow, TMASS, F_chm_ni, ilev, il1, il2, ntr, iae1, nt, isize, loc)
+         integer F_chm_ni, ilev, ntr, il1, il2, iae1, nt, isize, loc
+         real, dimension(:, :, :) :: xrow
+         real                        tmass
+      end subroutine mach_aurams_tsysms
+
+
+   end interface
+end module mach_aurams_headers_mod

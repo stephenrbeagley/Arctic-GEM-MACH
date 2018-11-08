@@ -1,0 +1,25 @@
+subroutine mach_cam_gasdepflux(vd, conc, molwt, delt, rho, ni, accdep)
+!
+!
+!  A simple deposition flux accumulator:  flux at the surface is assumed to
+!  be the deposition velocity * concentration * air density / molecular mass
+!  vd in m/s, delt in s, conc in ug/kg, rho in kg/m3, molecular mass in g/mol
+!  Result added to the accumulator is in units of moles/m2.
+!   Paul Makar, July 31, 2012.
+!
+      implicit none
+      integer, intent(in) :: ni
+      real, intent(in) :: molwt, delt
+      real, dimension(ni), intent(in) :: vd, conc, rho
+      real, dimension(ni), intent(inout) :: accdep
+      integer :: i
+! 
+      do i = 1,ni
+         accdep(i) = accdep(i) + vd(i) * delt * conc(i) * 1.E-06 * rho(i) / molwt
+      end do
+!
+!    
+      return
+      end
+
+

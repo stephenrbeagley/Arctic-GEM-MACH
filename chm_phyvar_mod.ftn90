@@ -1,0 +1,310 @@
+module chm_phyvar_mod
+!---------------------------------------------------------------------------------------------------------------
+!  Meteorology input variables, 3D:
+!---------------------------------------------------------------------------------------------------------------
+!  GEM Internal      GEM output   Meaning                                             units      Equivalent AURAMS variable
+!   tt                  TT        Temperature                                         K             tt
+!   F_busvol(kt)        KT        Thermal vertical diffusion coefficient              m**2/s        kx
+!   F_busper(ftot)      FN        Total cloud (0-1),                                  none          nu
+!   F_busper(fxp)       NS        Stratiform cloud (0-1)                              none          ns
+!   F_busper(fdc)       CK        Deep Convective cloud fraction                      none          nc
+!   F_busper(fsc)       FSC       Shallow convective cloud fraction                   none          nc
+!   hu                  HU        Specific humidity, kg H2O vapour/kg air             none          hu
+!   qc                  QC        Cloud water/ice kg/kg air                           none          qc
+!   F_busvol(rnflx)     RF        Liquid precipitation flux,                          kg/m**2/s     yw
+!   F_busvol(snoflx)    SF        Solid precipitation flux,                           kg/m**2/s     yi
+!   F_busvol(km)        KM        Momentum vertical diffusion coeff.                  m**2/s        km
+!   F_busper(fice)      F8        Ice fraction of cloud water from condens.  (0-1)    none
+!   cw                  -         Cloud liquid water content                          kg/m3         cw
+!   F_busper(lwc)       QD        Cloud water content at time t                       none
+!   F_busvol(cls)       NN        Cloud snow, consun                                  kg/m3         si (was set to QC!)
+!   F_busvol(clr)       13        Cloud rain, consun                                  kg/m3         cr
+!   F_busvol(fevp)      PV        Evap. of strat precip, consun                       none          ev
+!   F_busvol(f12)       12        Cloud to rain collection tendency, consun           none          wr
+!   F_busdyn(gzmoins6)  GM        (Geopotential - surface geopotential) at t-dt       m2/s2         GZ
+!                                (note that normalization by g is required to get GZ:  geopotential height above ground
+!   gz                  -         Geopotential height above surface, post-physics     m             GZ
+!   qr                  -         Rain/Snow                                           none          -
+!   F_busper(qrkfc)     S3        rain water/snow tend. due to KFC      s-1             s3
+!   F_busper(kfcrf)     L3        liquid precip flux from kfc           kg/m**2/s       l3
+!   F_busper(kfcsf)     L4        solid precip flux from kfc            kg/m**2/s       l4
+!---------------------------------------------------------------------------------------------------------------
+!  Meteorology input variables, 2D:
+!---------------------------------------------------------------------------------------------------------------
+!  GEM Internal      GEM output   Meaning                                             units      Equivalent AURAMS variable
+!   F_busvol(ue)        UE        Friction velocity u* from surface momentum flux     m/s           ux
+!   F_busdyn(frv)       B5        Friction velocity u*                                m/s           ux
+!   F_busvol(za)        ZA        Thickness of surface layer                          m             ax--> "anemom. height??"
+!   F_busvol(phit0)     X0        Stability function value at z = 0                   none          sx
+!   F_busvol(rib)       RB        Bulk Richardson number                              none          rb
+!   F_busvol(kcl)       KC        1st level in the PBL                                none          -
+!   F_busvol(ctue)      CH        Transfer coefficient for thermodynamics             m/s           tx
+!   F_busvol(cang)      CX        Cosine of solar zenith                              none          cx
+!   F_busdyn(pplus)     2P        Surface pressure(only modified by dynamics)         Pa            p0
+!   F_busper(fdss)      FS        Visible flux absorbed by ground                     W/m2          fs
+!   F_busper(fdsi)      FI        IR energy flux towards ground                       W/m2          -
+!   F_busper(tsurf)     J8        Area averaged surface temperature                   K             tg
+!   F_busper(tveg)      TE        Canopy temperature                                  K             -
+!   F_busper(udiag)     UD        Screen level X component of wind                    m/s
+!   F_busper(vdiag)     VD        Screen level Y component of wind                    m/s
+!   F_busper(glsea)     GL        Sea ice fraction                                    none          gl
+!   F_busper(snodp)     SD        Snow Depth                                          m             sd
+!   F_busvol(rhod)      M3        Air Density                                         kg/m3         m3 (in preprocessor)
+!   F_busper(nt)        NT        2D cloud cover                                      none          nt
+!   F_busvol(pr)        PR        Accumulation of total precipitation                 kg?           pr
+!   F_busper(wsoil)     I1        Soil volumetric water content                       kg?           I1
+!   F_busper(isoil)     I2        Soil volumetric ice content                         kg?           I2
+!   F_busper(tdiag)     TJ        Screen level temperature                            K             TT
+!   F_busper(qdiag)     DQ        Screen level specific humidity                      none          HU
+!   F_busdyn(dxdy)      DX        Area of grid square                                 m^2           -
+!
+!---------------------------------------------------------------------------------------------------------
+!  Some meteorological variables needed for GEM-MACH must be calculated
+!  in s/r updatdyn.  The following variables are required for those calculations:
+!
+!  GEM Internal      GEM output   Meaning                                                       units
+!
+!   F_busdyn(uplus)    UP         Wind speed along X at t+dt(dynamics)                          knots
+!   F_busvol(uphytd)   UPHY       U total tendency due to all physics processes                 knots/s
+!   F_busdyn(vplus)    VP         Wind speed along Y at t+dt(dynamics)                          knots
+!   F_busvol(vphytd)   VPHY       V total tendency due to all physics processes                 knots/s
+!   F_busdyn(tplus)    2T         Temperature at t+dt(dynamics)                                 K
+!   F_busvol(tphytd)   TPHY       Total temperature tendency due to physics processes           K/s
+!   F_busdyn(huplus)   UH         Specific humidty at t+dt(dynamics)                            none(kg/kg air)
+!   F_busvol(huphytd)  QPHY       Specific humidity tendency due to physics processes           kg/kgair / s
+!   F_busdyn(qcplus)   CQ         Cloud water/ice at t+dt(dynamics)                             none(kg/kg air)
+!   F_busvol(qcphytd)  QT         QC tendency due to physics processes                          kg/kgair / s
+!   F_busdyn(qrplus)   RQ         Rain water/snow at t+dt(dynamics)                             none(kg/kg air)
+!   F_busvol(qrphytd)  Q5         Specific humidity tendency due to physics processes           kg/kgair / s
+!   F_busvol(qiplus)   QI         ice (mass) at t+dt(dynamics)
+!   F_busvol(qiphytd)  QI         tendency from microphysics (or Kong-Yau, depending on switch)
+!   F_busvol(qgplus)   QG         graupel (mass) at t+dt(dynamics)
+!   F_busvol(qgphytd)  QG         tendency from microphysics (or Kong-Yau, depending on switch)
+!   F_busvol(qhplus)   QH         hail (mass) at t+dt(dynamics)
+!   F_busvol(qhphytd)  QH         tendency from microphysics
+!   F_busvol(qnplus)   QN         snow (mass) at t+dt(dynamics)
+!   F_busvol(qnphytd)  QN         tendency from microphysics
+!  next two Not used yet; tendendices internal only:
+!   F_busdyn(phis)     PHIS       Surface geopotential                                          m2/s2
+!   F_busper(fice)     F8         Ice fraction from condensation                                none
+!  Added by Makar, will be redundant in the future:
+!   F_busper(st1i)     S1         ln (pi_s / z_s):  for GZ calculations                         ln(pressure/z)  ?
+!   F_busper(presi)    PP         ln (pressure)                                                 ln(pressure)
+!----------------------------------------------------------------------------------------------
+!  New 2D variables for diagnostic output from the chemistry:
+!
+!   F_busper(wd_HSO3)  HSO3       Cumulative wet deposition of HSO3-
+!   F_busper(wd_HPXA)  HPXA       Cumulative wet deposition of H2O2 (hydrogen peroxide)
+!   F_busper(wd_RPXA)  RPXA       Cumulative wet deposition of ROOH (organic peroxide)
+!   F_busper(wd_SO4 )  WSO4       Cumulative wet deposition of SO4(=)
+!   F_busper(wd_NO3 )  WNO3       Cumulative wet deposition of NO3(-)
+!   F_busper(wd_NH4 )  WNH4       Cumulative wet deposition of NH4(+)
+!   F_busper(wd_CAT )  CAT        Cumulative wet deposition of base cations
+!   F_busper(wd_HCO3)  HCO3       Cumulative wet deposition of HCO3(-)
+!   F_busper(wd_H   )  HION       Cumulative wet deposition of H(+)
+!   F_busper(wd_SSLT)  SSLT       Cumulative wet deposition of sea-salt
+!   F_busper(wd_OCBN)  OCBN       Cumulative wet deposition of secondary organic carbon
+!   F_busper(wd_H2O )  WH2O       Cumulative wet deposition of aerosol water
+!   F_busper(wd_DUST)  DUST       Cumulative wet deposition of crustal material
+!   F_busper(wd_BLC )  BLC        Cumulative wet deposition of black carbon
+!   F_busper(wd_PCBN)  PCBN       Cumulative wet deposition of primary organic carbon
+!   F_busper(dd_pso4)  PSO4       Cumulative dry deposition of particle sulphate
+!   F_busper(dd_pss)   PSS        Cumulative dry deposition of particle sea-salt
+!   F_busper(dd_poc)   POC        Cumulative dry deposition of particle secondary organic carbon
+!   F_busper(dd_pno3)  PNO3       Cumulative dry deposition of particle nitrate
+!   F_busper(dd_pnh4)  PNH4       Cumulative dry deposition of particle ammonium
+!   F_busper(dd_pcm)   PCM        Cumulative dry deposition of particle crustal material
+!   F_busper(dd_pec)   PEC        Cumulative dry deposition of particle elemental carbon
+!   F_busper(dd_ppc)   PPC        Cumulative dry deposition of particle primary organic carbon
+!   F_busper(dd_so2)   SO2        Cumulative dry deposition of gaseous sulphur dioxide
+!   F_busper(dd_h2so4) H2SO4      Cumulative dry deposition of gaseous sulphuric acid
+!   F_busper(dd_no)    NO         Cumulative dry deposition of gaseous nitrogen monoxide
+!   F_busper(dd_no2)   NO2        Cumulative dry deposition of gaseous nitrogen dioxide
+!   F_busper(dd_o3)    O3         Cumulative dry deposition of gaseous ozone
+!   F_busper(dd_hno3)  HNO3       Cumulative dry deposition of gaseous nitric acid
+!   F_busper(dd_pan)   PAN        Cumulative dry deposition of gaseous peroxyacetylnitrate
+!   F_busper(dd_hono)  HONO       Cumulative dry deposition of gaseous nitrous acid
+!   F_busper(dd_rno3)  RNO3       Cumulative dry deposition of gaseous organic nitrates
+!   F_busper(dd_nh3)   NH3        Cumulative dry deposition of gaseous ammonia
+!   F_busper(dd_noy)   NOY        Cumulative dry deposition of total gaseous nitrogen tracers
+!   F_busper(dd_h2o2)  DH22       Cumulative dry deposition of gaseous hydrogen peroxide
+!   F_busper(dd_hcho)  DHCH       Cumulative dry deposition of gaseous formaldehyde
+!    For satellite data comparisons:
+!   F_busper(se_no)     S_NO      Cumulative emissions into the column of NO
+!   F_busper(se_no2)    S_N2       Cumulative emissions into the column of NO2
+!   F_busper(se_so2)    S_S2       Cumulative emissions into the column of SO2
+!   F_busper(se_co)     S_CO       Cumulative emissions into the column of CO
+!   F_busper(se_nh3)    S_N3       Cumulative emissions into the column of NH3
+!   F_busper(se_bno)    S_BN       Cumulative emissions into the column of biogenic NO
+!
+!   F_busvol(col_no)   CLNO       Column NO
+!   F_busvol(col_no2)  CLN2       Column NO2
+!   F_busvol(col_so2)  CLS2       Column SO2
+!   F_busvol(col_co)   CLCO       Column CO
+!   F_busvol(col_nh3)  CLN3       Column NH3
+
+   save
+
+   integer alvis,    alvis_siz
+   integer c_rhod,   c_rhod_siz
+   integer c_thick,  c_thick_siz
+   integer cang,     cang_siz
+   integer clr,      clr_siz
+   integer cls,      cls_siz
+   integer col_no   , col_no_siz
+   integer col_no2  , col_no2_siz
+   integer col_so2  , col_so2_siz
+   integer col_co   , col_co_siz
+   integer col_nh3  , col_nh3_siz
+   integer col_ethe , col_ethe_siz
+   integer col_tolu , col_tolu_siz
+   integer col_hcho , col_hcho_siz
+   integer col_isopa, col_isopa_siz
+   integer col_pm2p5, col_pm2p5_siz
+   integer col_pm10, col_pm10_siz
+   integer cosas,    cosas_siz
+   integer ctue,     ctue_siz
+   integer dlat,     dlat_siz
+   integer dlon,     dlon_siz
+   integer dxdy,     dxdy_siz
+   integer dd_pso4  , dd_pso4_siz 
+   integer dd_pss   , dd_pss_siz  
+   integer dd_poc   , dd_poc_siz  
+   integer dd_pno3  , dd_pno3_siz  
+   integer dd_pnh4  , dd_pnh4_siz  
+   integer dd_pcm   , dd_pcm_siz  
+   integer dd_pec   , dd_pec_siz  
+   integer dd_ppc   , dd_ppc_siz  
+   integer dd_so2   , dd_so2_siz  
+   integer dd_h2so4 , dd_h2so4_siz
+   integer dd_no    , dd_no_siz   
+   integer dd_no2   , dd_no2_siz  
+   integer dd_o3    , dd_o3_siz   
+   integer dd_hno3  , dd_hno3_siz 
+   integer dd_pan   , dd_pan_siz  
+   integer dd_hono  , dd_hono_siz 
+   integer dd_rno3  , dd_rno3_siz 
+   integer dd_nh3   , dd_nh3_siz  
+   integer dd_noy   , dd_noy_siz 
+   integer dd_h2o2  , dd_h2o2_siz
+   integer dd_hcho  , dd_hcho_siz
+   integer f12,      f12_siz
+   integer f12ky,    f12ky_siz
+   integer fdc,      fdc_siz
+   integer fdsi,     fdsi_siz
+   integer fdss,     fdss_siz
+   integer fevp,     fevp_siz
+   integer fevpky,   fevpky_siz
+   integer fice,     fice_siz
+   integer flusolis, flusolis_siz
+   integer fsc,      fsc_siz
+   integer ftot,     ftot_siz
+   integer fxp,      fxp_siz
+   integer glacier,  glacier_siz
+   integer glsea,    glsea_siz
+   integer gzmoins6, gzmoins6_siz
+   integer h,        h_siz
+   integer huphytd,  huphytd_siz
+   integer huplus,   huplus_siz
+   integer hv,       hv_siz
+   integer isoil,    isoil_siz
+   integer kcl,      kcl_siz
+   integer kfcrf,    kfcrf_siz
+   integer kfcsf,    kfcsf_siz
+   integer km,       km_siz
+   integer kt,       kt_siz
+   integer lwc,      lwc_siz
+   integer mg,       mg_siz
+   integer mol,      mol_siz
+   integer naero,    naero_siz
+   integer ncout,    ncout_siz
+   integer nt,       nt_siz
+   integer omegap,   omegap_siz
+   integer phis,     phis_siz
+   integer phit0,    phit0_siz
+   integer pplus,    pplus_siz
+   integer pr,       pr_siz
+   integer psn,      psn_siz
+   integer qcphytd,  qcphytd_siz
+   integer qbphytd,  qbphytd_siz
+   integer qbplus,   qbplus_siz
+   integer qcplus,   qcplus_siz
+   integer qdiag,    qdiag_siz
+   integer qgphytd,  qgphytd_siz
+   integer qgplus,   qgplus_siz
+   integer qhphytd,  qhphytd_siz
+   integer qhplus,   qhplus_siz
+   integer qiphytd,  qiphytd_siz
+   integer qiplus,   qiplus_siz
+   integer qnphytd,  qnphytd_siz
+   integer qnplus,   qnplus_siz
+   integer qrkfc,    qrkfc_siz
+   integer qrphytd,  qrphytd_siz
+   integer qrplus,   qrplus_siz
+   integer rainrate, rainrate_siz
+   integer rc,       rc_siz
+   integer rhod,     rhod_siz
+   integer rib,      rib_siz
+   integer rnflx,    rnflx_siz
+   integer prflxky,  prflxky_siz
+   integer rr,       rr_siz
+   integer rt,       rt_siz
+   integer se_no,     se_no_siz
+   integer se_no2,    se_no2_siz
+   integer se_so2,    se_so2_siz
+   integer se_co,     se_co_siz
+   integer se_nh3,    se_nh3_siz
+   integer se_bno,    se_bno_siz
+   integer se_ethe   , se_ethe_siz  
+   integer se_tolu   , se_tolu_siz  
+   integer se_hcho   , se_hcho_siz  
+   integer se_isopa  , se_isopa_siz 
+   integer se_isopb  , se_isopb_siz 
+   integer se_mono   , se_mono_siz  
+   integer se_ovoc   , se_ovoc_siz
+   integer se_pm2p5  , se_pm2p5_siz
+   integer se_pm10   , se_pm10_siz
+
+   integer sigm,     sigm_siz
+   integer snodp,    snodp_siz
+   integer snoflx,   snoflx_siz
+   integer swflxky,  swflxky_siz
+   integer tdiag,    tdiag_siz
+   integer tphytd,   tphytd_siz
+   integer tplus,    tplus_siz
+   integer tsoil,    tsoil_siz
+   integer tsurf,    tsurf_siz
+   integer tve,      tve_siz
+   integer tveg,     tveg_siz
+   integer twater,   twater_siz
+   integer udiag,    udiag_siz
+   integer ue,       ue_siz
+   integer uphytd,   uphytd_siz
+   integer uplus,    uplus_siz
+   integer vdiag,    vdiag_siz
+   integer vegf,     vegf_siz
+   integer vphytd,   vphytd_siz
+   integer vplus,    vplus_siz
+   integer wd_hso3 , wd_hso3_siz
+   integer wd_hpxa , wd_hpxa_siz
+   integer wd_rpxa , wd_rpxa_siz
+   integer wd_so4  , wd_so4_siz 
+   integer wd_no3  , wd_no3_siz 
+   integer wd_nh4  , wd_nh4_siz 
+   integer wd_cat  , wd_cat_siz 
+   integer wd_hco3 , wd_hco3_siz
+   integer wd_h    , wd_h_siz   
+   integer wd_sslt , wd_sslt_siz
+   integer wd_ocbn , wd_ocbn_siz
+   integer wd_h2o  , wd_h2o_siz 
+   integer wd_dust , wd_dust_siz
+   integer wd_blc  , wd_blc_siz 
+   integer wd_pcbn , wd_pcbn_siz
+   integer wsoil,    wsoil_siz
+   integer z0,       z0_siz
+   integer z0t,      z0t_siz
+   integer za,       za_siz
+
+
+
+end module chm_phyvar_mod

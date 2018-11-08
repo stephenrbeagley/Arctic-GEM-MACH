@@ -1,0 +1,132 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_rearrange.ftn90
+! Creation       : A. Kallaur - May 2007
+! Description    : Transpose point sources, according to the crossindex array sort_xref
+!
+! Extra info     :
+!
+!==============================================================================
+
+subroutine chm_mjrpts_rearrange(mode, nb_nomvar)
+   use chm_utils_mod
+   use chm_species_info_mod
+   use chm_mjrpts_lnklst_mod
+   use chm_mjrpts_sortinfo_mod
+   use chm_mjrpts_species_idx_mod
+   implicit none
+
+   character(len=*), intent(in) :: mode
+   integer, intent(in) :: nb_nomvar
+
+   integer  longueur
+   external longueur
+!
+! Local Variables
+!
+   integer                                    :: i, j, llsiz
+   character(len=4), dimension(nb_nomvar)     :: lnv
+   real            , dimension(nb_sources)    :: fsort
+   type (ltp)      , pointer                  :: current_mjrpts
+   logical                                    :: vfound, local_dbg
+   integer                                    :: nv_counter, bin_nb
+!
+! Based on the value of "mode", offload into temporary arrays
+! either the stask emissions rate for the species or the time
+! independant stack info. parameters.
+!
+   local_dbg = (.false. .or. global_debug)
+
+   nv_counter = 1
+   lnv  = '#$%@'
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Inside chm_mjrpts_rearrange'
+      write(chm_lun_out, *) 'mode : ', mode
+   end if
+   select case (mode(1:longueur(mode)))
+      case('STAKINFO')
+         if (local_dbg) then
+            write(chm_lun_out, *) 'chm_mjrpts_rearrange: STAKINFO mode'
+         end if
+         do i=1, nb_nomvar
+            lnv(i) = mjptnmv_stki_list(i)
+         enddo
+         llsiz = nb_nomvar
+      case('EMISSION')
+         if (local_dbg) then
+            write(chm_lun_out, *) 'chm_mjrpts_rearrange: EMISSION mode'
+         end if
+         do i = 1, nb_species
+            if (species_master(i) % nb_bins <= 1) then
+               if (species_master(i) % me_name /= UNASSIGNED) then
+                  lnv(nv_counter) = species_master(i) % me_name
+                  nv_counter = nv_counter + 1
+               end if
+            else
+               do bin_nb = 1, species_master(i) % nb_bins
+                  if (species_master(i) % bins_array(bin_nb) % me_name /= UNASSIGNED) then
+                     lnv(nv_counter) = species_master(i) % bins_array(bin_nb) % me_name
+                     nv_counter = nv_counter + 1
+                  end if
+               end do
+            end if
+         end do
+         llsiz = nb_nomvar
+      case default
+         write(chm_lun_out, *) 'Illegal choice in mode (subroutine chm_mjrpts_rearrange)'
+         write(chm_lun_out, *) 'Must be either STAKINFO or EMISSION'
+         write(chm_lun_out, *) '------> ABORT <------'
+         call chm_stop('chm_mjrpts_rearrange', -1)
+   endselect
+   if (local_dbg) then
+      write(chm_lun_out, *) 'List size determined as: ', llsiz
+      write(chm_lun_out, *) 'lnv - ', lnv
+   end if
+!
+! Proceed to transpose point sources, according to the crossindex array sort_xref.
+! First, however, check that there are elements in the linked list.
+!
+   if (.not. associated(head_mjrpts)) then
+      write(chm_lun_out, *) 'ERROR: UNEXPECTED EMPTY MAJOR POINT SOURCE LIST'
+      call chm_stop('chm_mjrpts_rearrange', -1)
+   endif
+   do i=1, llsiz
+      current_mjrpts => head_mjrpts
+      vfound = .false.
+      do
+          if (local_dbg) then
+             write(chm_lun_out, *) 'Comparing variable : '  , lnv(i)(1:longueur(lnv(i))), '  to  ', &
+                                       current_mjrpts%var_name(1:longueur(current_mjrpts%var_name))
+          end if
+         if (current_mjrpts%var_name(1:longueur(current_mjrpts%var_name)) == lnv(i)(1:longueur(lnv(i)))) then
+            if (local_dbg) write(chm_lun_out, *) 'found matching field: ', lnv(i), ' in list'
+            fsort = current_mjrpts%field
+            do j=1, nb_sources
+               current_mjrpts%field(j) = fsort(sort_xref(j))
+            enddo
+            vfound = .true.
+         endif
+         if (.not. associated(current_mjrpts%next_p)) then
+            exit
+         else
+            current_mjrpts => current_mjrpts%next_p
+         endif
+      enddo ! over linked list
+      if ( .not. vfound) then
+         write(chm_lun_out, *) 'ERROR: Variable: ', lnv(i), ' NOT FOUND in MJPT list'
+         call chm_stop('chm_mjrpts_rearrange', -1)
+      endif
+   enddo ! i=1, llsiz
+
+   return
+end subroutine chm_mjrpts_rearrange

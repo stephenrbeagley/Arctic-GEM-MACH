@@ -1,0 +1,45 @@
+      subroutine mach_bin_number(N10,N2P5,rho,aeronum,f_chm_ni,nk,isize)
+      implicit none
+!  subroutine calculates total number for PM10, PM2.5, for 12 bin distribution
+      integer, intent(in) ::  f_chm_ni,nk,isize
+      real, intent(in) :: aeronum(f_chm_ni,nk,isize)
+      real, intent(in) :: rho(f_chm_ni,nk)
+      real, intent(out) :: N10(f_chm_ni,nk)
+      real, intent(out) :: N2P5(f_chm_ni,nk)
+!  local variables
+      integer i,k,ibin
+      real volratpm2p5, volratpm10
+!  radius: 
+! aerosize = 0.005, 0.010, 0.020, 0.040, 0.080, 0.160, 0.320, 0.640, 1.280, 2.560, 5.120, 10.240, 20.480
+!
+      volratpm2p5 = (1.25**3 - 0.64**3) / (1.28**3 - 0.64**3)
+      volratpm10 = (5.0**3 - 2.56**3) / (5.12**3 - 2.56**3)
+      N10 = 0.0
+      N2P5 = 0.0
+      do ibin = 1,9
+       do k=1,nk
+        do i=1,f_chm_ni
+          N10(i,k) = N10(i,k) + aeronum(i,k,ibin) * rho(i,k)
+        end do
+       end do
+      end do
+      do k=1,nk
+        do i=1,f_chm_ni
+          N10(i,k) = N10(i,k) + aeronum(i,k,10) * rho(i,k) * volratpm10
+        end do
+      end do 
+      do ibin = 1,7
+        do k=1,nk
+          do i=1,f_chm_ni
+           N2P5(i,k) = N2P5(i,k) + aeronum(i,k,ibin) * rho(i,k)
+          end do
+        end do
+      end do
+      do k=1,nk
+        do i=1,f_chm_ni
+          N2P5(i,k) = N2P5(i,k) + aeronum(i,k,8) * rho(i,k) * volratpm2p5
+        end do
+      end do
+!
+      return
+      end

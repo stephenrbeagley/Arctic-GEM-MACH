@@ -1,0 +1,362 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_upddatdyn.ftn90
+! Creation       : P. Makar  , GEM-MACH, Feb 2007
+! Description    : Apply tendencies to state variables, and keep the results as
+!                 local copies.
+!
+! Modification   : A. Kallaur, September 2007
+!                  S. Gravel, Oct. 2012 (Mantis #2312)
+!
+!  note: gz_chm is the model concentration height above sea-level, and gz_k is the
+!  mid-layer height above sea level.  gz_k(i, k) - gz_chm(i, nk) is the
+!  mid-layer height above the local topography.
+!
+!
+! Arguments:  IN
+!            nk         Number of vertical levels
+!            f_chm_ni   Number of grid points(local MPI tle) in X dirn. (chemistry)
+!            f_p_ni     Number of grid points(local MPI tle) in X dirn. (physics -> should equal f_chm_ni)
+!            uplus      UU at t+dt with full tendencies added (not yet true)
+!            uplus_o    UU at t+dt
+!            uphytd     total U-comp wind tendency due to physics
+!            vplus      VV at t+dt with full tendencies added (not yet true)
+!            vplus_o    VV at t+dt
+!            vphytd     total V-comp wind tendency due to physics
+!            tplus      TT at t+dt with full tendencies added (not yet true)
+!            tplus_o    TT at t+dt
+!            tphytd     total Tempreature tendency due to physics
+!            qcplus     cloud water/ice at t+dt with tendencies added (not yet true)
+!            qcplus_o   cloud water/ice at t+dt
+!            qctend     QC tendency due to conv./cond.
+!            qrplus     rain water/snow at t+dt with tendencies added (not yet true)
+!            qrplus_o   rain water/snow at t+dt
+!            qrtend     QR tendency due to conv./cond.
+!            qnet       ?  (doesn't seem to be used)
+!            qnettend   ?  (doesn't seem to be used)
+!            huplus     specific humidity at t+dt
+!            huplus_o   specific humidity at t+dt
+!            hutend     specific humidity tendency due to physics
+!            fice       ice fraction from condens (from phy perm bus)
+!            qi_exist   flag for hydrometeor calculations (not set anywhere!!)
+!            qiplus     from Kong-Yau
+!            qiplus_o   from Kong-Yau
+!            qitend     QI tendency from Kong-Yau
+!            qgplus     from Kong-Yau
+!            qgplus_o   from Kong-Yau
+!            qgtend     QG-tendency from microphysics
+!            qnplus     snow (mass) at t+dt with tendencies added (not yet true)
+!            qnplus_o   snow (mass) at t+dt
+!            qntend     QW-tendency from microphysics  mach_updatdyn.ftn90
+!            qhplus     hail (mass) at t+dT
+!            qhplus_o   hail (mass) at t+dT
+!            qhtend     QH-tendency from microphysics
+!            gzmoins6   Geopotential height at t-dt with tendencies*
+!            gzmoins6_o Geopotential height at t-dt
+!            sfc_geop   surface geopotential with tendencies added (not true yet)
+!            sfc_geop_o surface geopotential
+!            pplus      pressure (Pa) at t+dt with tendencies (not true yet)
+!            pplus_o    pressure (Pa) at t+dt
+!            sigm       sigma levels at t+dt (not true yet)
+!            sigm_o     sigma levels at t+dt
+!
+!             OUT
+!            UU      -> UU(t+dt) + dt*UUtend
+!            VV      -> VV(t+dt) + dt*VVtend
+!            TT      -> TT(t+dt) + dt*TTtend
+!            HU      -> HU(t+dt) + dt*HUtend
+!            QC      -> QC(t+dt) + dt*QCtend
+!            CW      -> CW(t+dt) + dt*CWtend
+!            QR      -> QR(t+dt) + dt*QRtend
+!            QI      -> QI(t+dt) + dt*QItend
+!            QG      -> QG(t+dt) + dt*QGtend
+!            QN      -> QN(t+dt) + dt*QNtend
+!            QH      -> QH(t+dt) + dt*QHtend
+!            GZ_CHM  -> GZ_CHM(t+dt) + dt*GZ_CHMtend
+!            GZ_K    -> GZ_K(t+dt)   + dt*GZ_Ktend
+!            P2D     -> Surface pressure (sigm*pplus)
+!            ROH     -> Air density kg/m3
+!============================================================================
+!
+!
+
+subroutine mach_updatdyn(nk, f_chm_ni,                     &
+                         UU, uplus, uphytd,                &
+                         VV, vplus, vphytd,                &
+                         TT, tplus, tphytd,                &
+                         qcplus,                           &
+                         qnet, qnettend,                   &
+                         HU, huplus, hutend,               &
+                         QC, qctend,                       &
+                         CW, fice, qi_exist,               &
+                         QR,                               &
+                         QI, qiplus, qitend,               &
+                         QG, qgplus, qgtend,               &
+                         QN, qnplus, qntend,               &
+                         QH, qhplus, qhtend,               &
+                         GZ_CHM, GZ_K,                     &
+                         gzmoins6, sfc_geop,               &
+                         pplus, sigm,                      &
+                         RHO, P2D, f_p_ni     )
+   use chm_utils_mod
+   use chm_consphychm_mod
+   use chm_nml_mod
+   implicit none
+
+!  declare variables passed through subroutine argument list.
+   integer, intent(in)  :: nk, f_chm_ni, f_p_ni
+   logical, intent(in)  :: qi_exist
+   real,    intent(out) :: uu      (f_chm_ni, nk), vv      (f_chm_ni, nk)
+   real,    intent(out) :: tt      (f_chm_ni, nk), hu      (f_chm_ni, nk)
+   real,    intent(out) :: qc      (f_chm_ni, nk), cw      (f_chm_ni, nk)
+   real,    intent(out) :: qr      (f_chm_ni, nk), qi      (f_chm_ni, nk)
+   real,    intent(out) :: qg      (f_chm_ni, nk), qn      (f_chm_ni, nk)
+   real,    intent(out) :: qh      (f_chm_ni, nk)
+   real,    intent(in)  :: uplus   (f_chm_ni, nk), uphytd  (f_chm_ni, nk)
+   real,    intent(in)  :: vplus   (f_chm_ni, nk), vphytd  (f_chm_ni, nk)
+   real,    intent(in)  :: tplus   (f_chm_ni, nk), tphytd  (f_chm_ni, nk)
+   real,    intent(in)  :: qcplus  (f_chm_ni, nk)
+!   real,    intent(in)  :: qrplus  (f_chm_ni, nk), qrtend  (f_chm_ni, nk)
+   real,    intent(in)  :: qnet    (f_chm_ni, nk), qnettend(f_chm_ni, nk)
+   real,    intent(in)  :: huplus  (f_chm_ni, nk), hutend  (f_chm_ni, nk)
+   real,    intent(in)  :: qctend  (f_chm_ni, nk), fice    (f_chm_ni, nk)
+   real,    intent(in)  :: qiplus  (f_chm_ni, nk), qitend  (f_chm_ni, nk)
+   real,    intent(in)  :: qnplus  (f_chm_ni, nk), qntend  (f_chm_ni, nk)
+   real,    intent(in)  :: qhplus  (f_chm_ni, nk), qhtend  (f_chm_ni, nk)
+   real,    intent(in)  :: qgplus  (f_chm_ni, nk), qgtend  (f_chm_ni, nk)
+   real,    intent(out) :: gz_chm  (f_chm_ni, nk), gz_k    (f_chm_ni, nk)
+   real,    intent(in)  :: gzmoins6(f_chm_ni, nk), sigm    (f_p_ni  , nk)
+   real,    intent(in)  :: sfc_geop(f_p_ni)      , pplus   (f_p_ni)
+   real,    intent(out) :: rho     (f_p_ni  , nk), p2d     (f_p_ni  , nk)
+
+
+!  Other declarations
+
+   integer :: kz, ix
+   real    :: tv
+   real    :: wk6(f_chm_ni, nk)
+! mtsinsec is model time step in seconds
+   real    :: mtsinsec
+
+   logical :: local_dbg
+
+   local_dbg = (.false. .or. global_debug)
+
+!   write (chm_lun_out, *) 'Entered mach_updatdyn'
+!   write (chm_lun_out, *) 'Mid-slab values for:'
+   mtsinsec = chm_timestep
+!
+! Set uu:  uplus + DT*sum(u tendencies)
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+         uu(ix, kz) = uplus(ix, kz)
+      end do
+   end do
+!
+! Set vv:  vplus + DT*sum(v tendencies)
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+         vv(ix, kz) = vplus(ix, kz) 
+      end do
+   end do
+!
+! Set tt:
+!  Subsequent to GEM 3.2.2, Physics 4.4, TPLUS is the temperature
+!  (not the virtual temperature) at t+dt(dynamics)
+!  and tphytd is the total temperature tendency, due to the physics.
+!
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+         tt(ix, kz) = tplus(ix, kz)
+      end do
+   end do
+!
+!  Set hu:  sum of changes due to vertical diffusion and convection/condensation:
+!  Note that in GEM s/r phyexe1, the volatile bus is modified to include the
+!  net tendencies for humidity and each hydrometeor - these tendencies
+!  were extracted prior to input into updatdyn.ftn.
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+           hu(ix, kz) = max(huplus(ix, kz), 0.0)
+      end do
+   end do
+
+! Add tendencies for diagnostic level only
+   do ix = 1, f_chm_ni
+       uu(ix, nk) = uu(ix, nk) + mtsinsec * uphytd(ix, nk)
+       vv(ix, nk) = vv(ix, nk) + mtsinsec * vphytd(ix, nk)
+       tt(ix, nk) = tt(ix, nk) + mtsinsec * tphytd(ix, nk)
+       hu(ix, nk) = max(hu(ix,nk) + mtsinsec * hutend(ix, nk), 0.0)
+   end do
+!
+!  Recalculate density based on changes in physics.  Note that the physics is
+!  isobaric, but the temperatures and humidity have changed, hence the air
+!  density changes in response to the physics.
+!  Also note that the virtual temperature is used here, including
+!  the hydrometeor correction:  what is determined is the density of
+!  the dry air in the total volume containing both dry air, water
+!  vapour, and hydrometeors.  See AMS glossary at
+!  http://amsglossary.allenpress.com/glossary/search?id=virtual-temperature1
+!  for reference for formulae used below.
+!
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+         tv = tt(ix, kz) * &
+              ( 1. + delta * hu(ix, kz) -  &
+              qnet(ix, kz) )
+
+         rho(ix, kz) = sigm(ix, kz) * pplus(ix) / (rgasd * tv )
+         p2d(ix, kz) = sigm(ix, kz) * pplus(ix)
+      end do
+   end do
+!
+!  Set qc:  total cloud water.
+!  In  s/r phyexe1, the diffusion and condensation tendencies for cloud water/ice
+!  qcdifv and qccond are added together into qccond, which is then made mass consistent
+!  for the available water to prevent getting values less than zero in the result.
+!  Hopefully this was taken into account for the qctendency total!
+!
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+            qc(ix, kz) = max(qcplus(ix, kz), 0.0)
+      end do
+   end do
+!
+!  Update qi, qg, qn, qh.  Depending on the parameterization, these
+!  may be zero.
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+            qi(ix, kz) = max(qiplus(ix, kz), 0.0)
+            qg(ix, kz) = max(qgplus(ix, kz), 0.0)
+            qn(ix, kz) = max(qnplus(ix, kz), 0.0)
+            qh(ix, kz) = max(qhplus(ix, kz), 0.0)
+      end do
+   end do
+!
+!  Set cw, the liquid cloud water :  the total amount of water is qc.
+!  The units are converted to kg/m3 in the process, and round-off
+!  is avoided in favour of the liquid water.
+!  Note:  the assumption is made here that if QI exists as a
+!  hydrometeor (i.e. if the physics options flags choose a
+!  parameterization which includes QI explicitly), then that variable
+!  should be used for the ice.  All other options are assumed to have
+!  an ice fraction to separate the ice from the net cloud water variable
+!  qc:
+!
+   if(qi_exist) then
+      do kz = 1, nk
+         do ix = 1, f_chm_ni
+            cw(ix, kz) = max((qc(ix, kz) - qi(ix, kz) - qg(ix, kz)) * rho(ix, kz), 0.0)
+         end do
+      end do
+   else
+      do kz = 1, nk
+         do ix = 1, f_chm_ni
+            cw(ix, kz) = max((1.0 - fice(ix, kz)) * qc(ix, kz) * rho(ix, kz), 0.0)
+         end do
+      end do
+   end if
+!
+!  Set qr:  total cloud rain/snow, needed for GZ calculation:
+!  Again, could be zero depending on parameterizations chosen.
+!
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+         qr(ix, kz) = 0.0
+      end do
+   end do
+!
+!  Set gz:  geopotential height.
+!  The idea here is to update the geopotential tendency, then vertically
+!  integrate it to get the geopotential tendency, which is the same
+!  as the geopotential height tendency.  However, an option exists in
+!  GEM whereby the geopotential height is only updated via updates
+!  to the prognostic species.  Hence the if statement with the Schm_pheat_L
+!  parameter, which leaves the tendency zero if this option is not .true.
+!  (true = use tendency to update geopotential)
+!
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+!  tplus is the post-dynamics virtual temperature.  Virtual temperature
+!  tendency can be calculated from calculating the post-physics
+!  virtual temperature from tt, then taking the difference from tplus and
+!  dividing by the time step:
+!
+         wk6(ix, kz) = 0.0
+      end do
+   end do
+!
+   do kz = 1, nk
+      do ix = 1, f_chm_ni
+         gz_chm(ix, kz) = gzmoins6(ix, kz) + mtsinsec * wk6(ix, kz)
+      end do
+   end do
+
+   do kz = 1, nk - 1
+      do ix = 1, f_chm_ni
+         gz_chm(ix, kz) = (gz_chm(ix, kz) + sfc_geop(ix)) / grav
+      end do
+   end do
+   kz = nk
+   do ix = 1, f_chm_ni
+      gz_chm(ix, kz)    = (sfc_geop(ix)) / grav
+   end do
+
+!  gz_chm is now the height above sea level, for tracers.  Calculate k heights:
+!  These are defined as being at the half-way location in sigma-coordinates.
+
+   gz_k = 0.
+   do kz = 1, nk - 1
+      do ix = 1, f_chm_ni
+!  Note:  in the following formula, the density of the layer between gz_chm(kz) and
+!  gz_chm(kz-1) is assumed to be the average of the two rho values.  The density
+!  can sometimes increase with height near the ground, precluding more complex
+!  solutions.
+          gz_k(ix,kz) = gz_chm(ix,kz+1) + &
+                         ( pplus(ix) * (sigm(ix, kz+1) - sigm(ix, kz)) ) / &
+                         ( grav * (rho(ix, kz+1) + rho(ix, kz)) )
+      end do
+   end do
+   do ix=1,f_chm_ni
+     gz_k(ix,nk) = gz_chm(ix,nk)
+   end do
+   if (local_dbg) then
+!  check to make sure value of gz_k is between appropriate bounds of gz_chm:
+      do kz = 1,nk-1
+      do ix = 1,f_chm_ni
+            if(gz_k(ix,kz) .ge. gz_chm(ix,kz) .or. &
+               gz_k(ix,kz) .le.  gz_chm(ix,kz+1) ) then
+                  write(0, *) '### ERROR in mach_updatdyn ###'
+                  write(0, *) '# gz_k is out of bounds at height ',kz
+                  write(0, *) '# gz_chm (kz) : ',gz_chm(ix,kz)
+                  write(0, *) '# gz_k (kz) : ',gz_k(ix,kz)
+                  write(0, *) '# gz_chm (kz-1): ',gz_chm(ix,kz+1)
+                  write(0, *) '# gzmoins6(kz) : ',gzmoins6(ix,kz)
+                  write(0, *) '# gzmoins6(kz-1): ',gzmoins6(ix,kz+1)
+                  write(0, *) '# sfc_geop(ix): ',sfc_geop(ix)
+                  write(0, *) '# wk6(kz): ',wk6(ix, kz)
+                  write(0, *) '# wk6(kz-1): ',wk6(ix,kz+1)
+                  write(0, *) '# pplus: ',pplus(ix)
+                  write(0, *) '# sigm(kz): ',sigm(ix,kz)
+                  write(0, *) '# sigm(kz-1): ',sigm(ix,kz+1)
+                  write(0, *) '# rho(kz): ',rho(ix,kz)
+                  write(0, *) '# rho(kz-1): ',rho(ix,kz+1)
+                  write(0, *) '### ABORT ###'
+                  call chm_stop ('mach_updatdyn', -1)
+               end if
+         end do
+      end do
+!    write (chm_lun_out, *) 'end of updatdyn'
+   end if
+   return
+   end
+

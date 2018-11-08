@@ -1,0 +1,134 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_gas_headers_mod.ftn90
+! Creation       : H. Landry, Sept 2008
+! Description    : Modules defining explicit interfaces for mach subroutines
+!                  related to gas phase chemistry
+!
+! Extra info     :
+!
+!============================================================================
+
+module mach_gas_headers_mod
+   use mach_gas_chemicbi_mod, only: lucprm
+   interface
+
+      subroutine mach_gas_chemi (BG, npt, nprcf, nk, f_chm_ni)
+         integer nprcf, npt, f_chm_ni
+         integer nk
+         real*8  bg(npt, nprcf)
+      end subroutine mach_gas_chemi
+
+      subroutine mach_gas_drive(YG, nst, nsi, delt, INDEX,         &
+                                    zen, ig, jg,                       &
+                                    rgs, bgs, nreac_sa, nprcf_sa,      &
+                                    ymings, ymin2gs, ymin3gs, hstarts, &
+                                    hsubs, hmaxs)
+         integer nst
+         real    yg(nst)
+         integer nsi, ig, jg
+         real    delt, zen
+         integer index
+         integer nreac_sa, nprcf_sa
+         real    rgs(nreac_sa), bgs(nprcf_sa)
+         real    ymings, ymin2gs, ymin3gs, hstarts
+         real    hsubs(2), hmaxs(2)
+      end subroutine mach_gas_drive
+
+      subroutine mach_gas_drydep_main(f_chmbusper, f_chmbusvol, f_busper, f_busvol, hu2d, f_bper_siz, f_bvol_siz, &
+                                    psrf, chm_ni, deposited_species, nsp_depos )
+         real, dimension(*) :: f_chmbusper, f_chmbusvol
+         integer               f_bper_siz, f_bvol_siz
+         real                  f_busper(f_bper_siz), f_busvol(f_bvol_siz)
+         integer               chm_ni
+         real, dimension(chm_ni) :: psrf, hu2d
+         integer  nsp_depos
+         integer, dimension(nsp_depos) :: deposited_species
+      end subroutine mach_gas_drydep_main
+
+      subroutine mach_gas_drydep_solver(VD         , AERO_RESIST, DIFF_RESIST,     &
+                                       SURF_RESIST, season     , lfu        ,    &
+                                       lmob_in    , sol_flux_in, tsrf, sif, snf, &
+                                       lsmsk,             &
+                                       ustar_in    , prec_rt_in , sd,         &
+                                       p0_in       , hu         , ni         ,              &
+                                       species    , sp_i                          )
+         integer                        ni, sp_i, species
+         real, dimension(ni)         :: lmob_in, hu, sd, sif, snf, lsmsk, p0_in
+         real, dimension(ni)         :: tsrf, prec_rt_in, ustar_in
+         real, dimension(ni)         :: season, sol_flux_in
+         real, dimension(ni, lucprm) :: lfu
+         real, dimension(ni, lucprm) :: aero_resist
+         real, dimension(ni)         :: vd,  diff_resist, surf_resist
+      end subroutine mach_gas_drydep_solver
+
+      subroutine mach_gas_drydep_stat(vd         , aero_resist, diff_resist,    &
+                                       surf_resist, season     , lfu        ,    &
+                                       lmob_in    , sol_flux_in, tsrf       ,    &
+                                       ustar_in   , prec_rt_in , sd         ,    &
+                                       p0_in      , hu2d       , ni         ,    &
+                                       species                                   )
+         integer                ni, species
+         real, dimension(ni) :: lmob_in, hu2d, sd, p0_in
+         real, dimension(ni) :: tsrf, prec_rt_in
+         real, dimension(ni) :: ustar_in, season, sol_flux_in, vd
+         real, dimension(ni) :: aero_resist, diff_resist, surf_resist
+         real, dimension(ni,lucprm) :: lfu
+      end subroutine mach_gas_drydep_stat
+
+      subroutine mach_gas_jcorr (cx, qc, mh, th, nu, rho, JC, nxy, nz)
+         integer nxy, nz
+         real    cx(nxy), qc(nxy, nz), mh(nxy, nz), th(nxy, nz), nu(nxy, nz), rho(nxy, nz)
+         real    jc(nxy, nz)
+      end subroutine mach_gas_jcorr
+
+      subroutine mach_gas_main(f_chmbusdyn, f_chmbusvol, nu, oldso4, gz_chm, gz_k, qc, p2d, tt, hu, rho, cx, &
+                               vocc, vocr, brch, f_chm_ni, nk, f_step)
+         real, dimension(:) :: f_chmbusdyn, f_chmbusvol
+         integer f_chm_ni, nk, f_step
+         real   nu(f_chm_ni, nk), gz_chm(f_chm_ni, nk), gz_k(f_chm_ni, nk), qc(f_chm_ni, nk)
+         real   hu(f_chm_ni, nk), tt(f_chm_ni, nk), p2d(f_chm_ni, nk), rho(f_chm_ni, nk), cx(f_chm_ni)
+         real   oldso4(f_chm_ni, nk), vocc(f_chm_ni*nk), vocr(f_chm_ni*nk), brch(f_chm_ni*nk)
+      end subroutine mach_gas_main
+
+      subroutine mach_gas_soa_yield(f_chmbusdyn, f_chmbusvol, p2d, tt, rho, tppmg, conv1, nst, f_chm_ni, nk)
+         integer nst, f_chm_ni, nk
+         real    p2d(f_chm_ni, nk), tt(f_chm_ni, nk), rho(f_chm_ni, nk)
+         real    tppmg(f_chm_ni * nk, nst)
+         real    conv1(f_chm_ni * nk)
+         real, dimension(*)   :: f_chmbusdyn, f_chmbusvol
+      end subroutine mach_gas_soa_yield
+
+      subroutine mach_gas_uprate(znode, zpres, ztemp, sky, zen,       &
+                           itswet, cno, RG, BG, nreac, nprcf, npt, f_chm_ni)
+         integer npt, f_chm_ni
+         integer nreac, nprcf
+         real    znode(npt), zpres(npt), ztemp(npt)
+         real    sky(npt), zen(npt)
+         integer itswet(npt)
+         real    cno(npt)
+         real *8 rg(npt, nreac)
+         real *8 bg(npt, nprcf)
+      end subroutine mach_gas_uprate
+
+      subroutine mach_gasdepflux(conc, emissions, vd, molwt, dt, rho, area, zf, zh, ni, nk, nsp, Accdep)
+         integer                :: ni, nk, nsp
+         real                   :: dt
+         real, dimension(ni,nk) :: zf, zh
+         real, dimension(nsp)   :: molwt
+         real, dimension(ni,nsp):: vd, conc, emissions
+         real, dimension(ni)    :: rho, area
+         real, dimension(ni,nsp):: accdep
+      end subroutine mach_gasdepflux
+
+   end interface
+end module mach_gas_headers_mod

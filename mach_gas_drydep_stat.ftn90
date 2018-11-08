@@ -1,0 +1,149 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet / Project : GEM-MACH
+! Fichier / File   : mach_gas_drydep_stat.ftn90
+! Creation         : Alexander Kallaur DEC 2007
+! Description      : Provide statistics and values to all the parameters
+!                    passed to mach_gas_drydep_solver.
+!
+!
+! Arguments:  IN
+!
+!    ni       -> length of gripdt row to work on
+!
+!    species  -> Unique species identifier (integer)
+!
+!    lmob_in  -> Monin-Obukhov length
+!                Phyvar(MOL) (-1000.0-10000 m)
+!
+!    tsrf     -> Surface temperature (K)
+!                NOTE: Two choices here:
+!                      1) Take TSURF; averaged skin Temp from PHY (ISBA)
+!                      2) Take TT(1) 1st level model temp
+!                      In discussion with B. Bilodeau Nov 22 2007, he mentioned
+!                      that there is a way to provide profile between TSURF & TT(1),
+!                      if need be.
+!
+!    ustar_in -> Surface friction velocity (m/s) taken from Phyvar(UE)
+!
+!    hu2d     -> Specific humidity
+!
+! sol_flux_in -> Downwards visible solar flux
+!                Phyvar(FLUSOLIS)  (W/m2)
+!
+!  prec_rt_in -> Precipitation rate (m/s)
+!                Phyvar (U1 or RAINRATE from volatile bus)
+!
+!      season -> Seasonal categories
+!                  1  midsummer with lush vegetation
+!                  2  autumn with cropland before harvest
+!                  3  later autumn after frost, no snow
+!                  4  winter, snow on ground and subfreezing
+!                  5  transitional spring with partially green short annuals
+!
+!         lfu -> Land Form Use
+!                CHEMVar(LAND_USE_15) from Chemical permanent bus
+!                Derived from the CMC26 category data set into 15 category
+!                set in subroutine "mach_landuse"
+!
+!          sd -> Snow depth (m)
+!                PhyVar(SD)
+!
+!          p0 -> Surface presssure [Pa]
+!                PhyVar(2p -> pplus from Dyn bus)
+!
+!          vd -> Deposition velocity for species "species"   (m/s)
+!
+! aero_resist -> Aerodynamic resistance for species "species" (s/m)
+!
+! diff_resist -> Molecular diffusion resistance for species "species" (s/m)
+!
+! surf_resist -> Total surface resistance for species "species" (s/m)
+!
+!============================================================================!
+
+subroutine mach_gas_drydep_stat(vd         , aero_resist, diff_resist,    &
+                                 surf_resist, season     , lfu        ,    &
+                                 lmob_in    , sol_flux_in, tsrf       ,    &
+                                 ustar_in   , prec_rt_in , sd         ,    &
+                                 p0_in      , hu2d    , ni         ,    &
+                                 species                                   )
+
+   use chm_utils_mod
+   use chm_consphychm_mod
+   use mach_gas_chemicbi_mod,    only: lucprm
+   use chm_species_info_mod
+   use chm_species_idx_mod
+
+   implicit none
+
+!  Declare subroutine input arguments
+   integer,                    intent(in) :: ni, species
+   real, dimension(ni),        intent(in) :: lmob_in, hu2d, sd, p0_in
+   real, dimension(ni),        intent(in) :: tsrf, prec_rt_in
+   real, dimension(ni),        intent(in) :: ustar_in, season, sol_flux_in, vd
+   real, dimension(ni),        intent(in) :: aero_resist, diff_resist, surf_resist
+   real, dimension(ni,lucprm), intent(in) :: lfu
+
+   logical  :: local_dbg
+   integer  :: i
+
+   local_dbg = (.false. .or. global_debug)
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'begin data field analysis for mach_gas_drydep_solver (post mortem)'
+   end if
+
+   write (chm_lun_out,1) species_master(species) % dyn_name, ni
+   1 format('For specie: ', a10, '  size: ', i5)
+
+   call calc_prn_stats_1d('lmob_in    ', lmob_in    , ni)
+   call calc_prn_stats_1d('hu2d       ', hu2d       , ni)
+   call calc_prn_stats_1d('sd         ', sd         , ni)
+   call calc_prn_stats_1d('p0         ', p0_in      , ni)
+   call calc_prn_stats_1d('tsrf       ', tsrf       , ni)
+   call calc_prn_stats_1d('prec_rt_in ', prec_rt_in , ni)
+   call calc_prn_stats_1d('ustar_in   ', ustar_in   , ni)
+   call calc_prn_stats_1d('season     ', season     , ni)
+   call calc_prn_stats_1d('sol_flux_in', sol_flux_in, ni)
+   call calc_prn_stats_1d('vd         ', vd         , ni)
+   call calc_prn_stats_1d('aero_resist', aero_resist, ni)
+   call calc_prn_stats_1d('diff_resist', diff_resist, ni)
+   call calc_prn_stats_1d('surf_resist', surf_resist, ni)
+
+   do i = 1, lucprm
+      call calc_prn_stats_1d('lfu        ',lfu(1,i),ni)
+   end do
+
+   if (local_dbg) then
+      write(chm_lun_out, *) ' end data field analysis for mach_gas_drydep_solver (post mortem)'
+      write(chm_lun_out, *) ' '
+      write(chm_lun_out, *) ' '
+   end if
+
+   return
+
+   contains
+
+      subroutine calc_prn_stats_1d(arnam, f, fsiz)
+
+         implicit none
+
+         integer,              intent(in) :: fsiz
+         real,dimension(fsiz), intent(in) :: f
+         character(len=*),     intent(in) :: arnam
+
+         write (chm_lun_out, 12) arnam, sum(f) / fsiz, minval(f), maxval(f), f(1), f(fsiz / 2), f(fsiz)
+         12 format (a15, ' mean: ',e12.4, ' min: ', e12.4, ' max: ', e12.4, ' selected values (1,mid,end): ', 3e12.4)
+
+      end subroutine calc_prn_stats_1d
+
+end subroutine mach_gas_drydep_stat

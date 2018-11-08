@@ -1,0 +1,68 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_proc.ftn90
+! Creation       : A. Kallaur - April 2007
+! Description    : Travers the j index (as would be in the model)
+!                  and report the values of the all the point for
+!                  all the species in the major point source
+!                  linked list.
+!
+! Extra Info     :
+!
+! Arguments: IN/OUT -> NONE
+!
+!==============================================================================
+!
+subroutine chm_mjrpts_proc( )
+   use chm_utils_mod
+   use chm_mjrpts_lnklst_mod
+   use chm_ptopo_grid_mod
+   use chm_mjrpts_sortinfo_mod
+   implicit none
+
+!
+! Local variables
+!
+   integer             :: i
+   logical             :: local_dbg
+   type (ltp), pointer :: current_mjrpts
+
+   local_dbg = (.false. .or. global_debug)
+   do i=1, chm_nj
+      if (local_dbg) then
+         write(chm_lun_out, *) ' '
+         write(chm_lun_out, *) '*****************************************************************'
+         write(chm_lun_out, *) 'Processing slab: ', i
+      endif
+      if (jcrdlimits(i, 1) > 0 ) then
+         current_mjrpts => head_mjrpts
+!          write(chm_lun_out, *) 'index(start, end)  : ', jcrdlimits(i, 1), jcrdlimits(i, 2)
+         do
+!             write(chm_lun_out, *) ' '
+!             write(chm_lun_out, *) 'Field name        : ', current_mjrpts%var_name
+!             write(chm_lun_out, *) 'f(start), f(end)   : ', current_mjrpts%field(jcrdlimits(i, 1)), current_mjrpts%field(jcrdlimits(i, 2))
+!             write(chm_lun_out, *) 'min, max, mean      : ', current_mjrpts%min_f, current_mjrpts%max_f, current_mjrpts%mean_f
+            if (.not. associated(current_mjrpts%next_p)) then
+               exit
+            else
+               current_mjrpts => current_mjrpts%next_p
+            endif
+         enddo
+      else
+         if (local_dbg) then
+            write(chm_lun_out, *) 'Nothing for this slab'
+         end if
+      endif
+   enddo
+   return
+end subroutine chm_mjrpts_proc
+

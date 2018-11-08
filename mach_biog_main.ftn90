@@ -1,0 +1,159 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_biog_main.ftn90
+! Creation       : H. Landry, S. Menard, A. Kallaur - mai 2006
+! Description    : This is the main biogenic subroutine.  It drives the
+!                  the computation and the output of the biogenic emissions
+!
+! Extra info     : From here, there should not be any mention of the source of the
+!                  data: we don't want to carry all the bus interface with us.
+!                  This function is detached from GEM and CHEM.
+!                  It is also assumed that all arrays are 2D of size ni
+!
+! Arguments:  IN
+!                ni             --> slab size
+!                surf_temp_p    --> surface temperature
+!                solar_irr_p    --> solar irradiation
+!                cosine_solar_p --> cosine of solar angle
+!                surf_press_p   --> surface pressure
+!                no_std_p       --> Standard NO   emission (without correction)
+!                isop_std_p     --> Standard ISOP emission (without correction)
+!                mono_std_p     --> Standard MONO emission (without correction)
+!                voc_std_p      --> Standard VOC  emission (without correction)
+!                lai_p          --> leaf area index
+!
+!             OUT
+!                emissbio_no_p   --> NO emissions
+!                emissbio_isop_p --> Isopprene emissions
+!                emissbio_alke_p --> Monoterpene emissions
+!                emissbio_alka_p --> Monoterpene emissions
+!
+!==============================================================================
+
+subroutine mach_biog_main(f_chmbusper,     &
+                          ni,              &
+                          surf_temp_p,     &
+                          solar_irr_p,     &
+                          COSINE_SOLAR_P,  &
+                          surf_press_p,    &
+                          sebstepNO,       &
+                          sestepOVOC,      &
+                          sestepISOPB,     &
+                          sestepMONO     )
+   use chm_utils_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use mach_headers_mod, only:mach_biog_parcalc, mach_biog_emissions
+   implicit none
+
+! Variable Declaration
+
+!  * variables got from CDK files
+! integer ebio, ebno, ebmo, ebvo, lai
+
+!  Arguments variables
+   integer, intent(in)  :: ni
+   real,  dimension(*), intent(inout) :: f_chmbusper
+
+!     * meteorological variables needed for some calculation
+   real, intent(in)    :: surf_temp_p   (ni)     ! surface temperature 3D
+   real, intent(in)    :: solar_irr_p   (ni)     ! solar irradiation 2D
+   real, intent(inout) :: cosine_solar_p(ni)     ! cosine of solar angle 2D
+   real, intent(in)    :: surf_press_p  (ni)     ! surface pressure 2D
+   real, intent(out)   :: sebstepno (ni)
+   real, intent(out)   :: sestepOVOC (ni)
+   real, intent(out)   :: sestepISOPB (ni)
+   real, intent(out)   :: sestepMONO (ni)
+
+!     * output values by biogenics emissions and beis3 correction
+   real, dimension(:) :: emissbio_alke_p(ni) ! ALKE emissions
+   real, dimension(:) :: emissbio_alka_p(ni) ! ALKA emissions
+!
+!  Local variables
+!
+!  * Photosynthetically Active Radiation variables
+   real, dimension (:) :: par(ni), pardb(ni), pardif(ni)  ! PAR, PAR direct beam, PAR diffuse
+
+!  * Since alke and alka are composed of monoterpene and voc, we need local arrays to hold them
+   real, dimension (:) :: emissbio_voc_p(ni), emissbio_mono_p(ni)
+!
+!  * Loop variable
+   integer i
+
+   emissbio_voc_p(1:ni)  = 0.0
+   emissbio_mono_p(1:ni) = 0.0
+   emissbio_alke_p(1:ni) = 0.0
+   emissbio_alka_p(1:ni) = 0.0
+
+!  * Ensure that there're no negative values in  the cosine of solar zenith (cang)
+   do i = 1, ni
+      cosine_solar_p(i) = max(cosine_solar_p(i), 0.0)
+   enddo
+
+
+!  * Computation of the Photosynthetically Active Radiation (PARcalc)
+   call mach_biog_parcalc(ni,               &
+                          solar_irr_p,      &
+                          cosine_solar_p,   &
+                          surf_press_p,     &
+                          PAR, PARDB, PARDIF )
+
+
+! Compute the emissions of the four main species NO, Isoprene, monoterpene and VOC
+   call mach_biog_emissions(ni,                 &
+                            par, pardb, pardif, &
+                            surf_temp_p,        &
+                            cosine_solar_p,     &
+                            f_chmbusper(sm(sp_NO)   % bse_offset), &
+                            f_chmbusper(sm(sp_ISOP) % bse_offset), &
+                            f_chmbusper(sm(sp_EBMO) % bse_offset), &
+                            f_chmbusper(sm(sp_EBVO) % bse_offset), &
+                            f_chmbusper(sm(sp_NO)   % bwe_offset), &
+                            f_chmbusper(sm(sp_ISOP) % bwe_offset), &
+                            f_chmbusper(sm(sp_EBMO) % bwe_offset), &
+                            f_chmbusper(sm(sp_EBVO) % bwe_offset), &
+                            f_chmbusper(sm(sp_LAI)  % per_offset), &
+                            f_chmbusper(sm(sp_SESN) % per_offset), &
+                            f_chmbusper(sm(sp_NO)   % be_offset),  &
+                            EMISSBIO_VOC_P,                        &
+                            f_chmbusper(sm(sp_ISOP) % be_offset),  &
+                            EMISSBIO_MONO_P      )
+!
+!  Transfer emissions for output:
+      sestepOVOC = emissbio_VOC_P
+      sestepMONO = emissbio_MONO_P
+      call mach_perm_transfer(f_chmbusper(sm(sp_ISOP) % be_offset),sestepISOPB,ni)
+      call mach_perm_transfer(f_chmbusper(sm(sp_NO)   % be_offset),sebstepNO,ni)
+!
+!   Now convert mono and voc to alke and alka
+
+!     ALKE:  sum of 50% of the VOC mass and all of the monoterpene,
+!     both weighted by the ratio of ALKE mass to (monoterpene or OVOC) mass.
+!     The weighting is to convert moles of the emitted species, monoterpene
+!     or OVOC to moles of the model species, ALKE.
+!     OVOC molecular mass of 147.26056 is from assuming 50% monoterpene (c10H16)
+!     and 50% C10 alcohol (CH3(CH2)8CH2OH).
+!     To be consistent with values in BEIS, mono mass is 136.0 and ovoc is 148.0
+
+   emissbio_alke_p(1:ni) = 0.5 * (57.3 / 148.0) * emissbio_voc_p(1:ni) + \
+                                 (57.3 / 136.0) * emissbio_mono_p(1:ni)
+
+!     ALKA:  50% of the OVOC, molecular mass weighted to get moles of ALKA
+
+   emissbio_alka_p(1:ni) = 0.5 * (93.43 / 148.0) * emissbio_voc_p(1:ni)
+
+   f_chmbusper(sm(sp_ALKE) % be_offset : (sm(sp_ALKE) % be_offset + ni - 1)) = emissbio_alke_p(1:ni)
+   f_chmbusper(sm(sp_ALKA) % be_offset : (sm(sp_ALKA) % be_offset + ni - 1)) = emissbio_alka_p(1:ni)
+
+   return
+
+end subroutine mach_biog_main

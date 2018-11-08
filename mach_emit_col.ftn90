@@ -1,0 +1,102 @@
+! Calculates column molecules/m2 or difference in 
+! column molecules/m2, for specific species
+!
+      subroutine mach_emit_col(ni,nk,thick,dt,area,      &
+                      colNO,colNO2,colSO2,colCO,colNH3,  &
+                      colETHE, colTOLU, colHCHO, colISOP, &
+                      colPM2P5, colPM10, &
+                      concNO,concNO2,concSO2,concCO,concNH3, &
+                      concETHE, concTOLU, concHCHO, concISOP, &
+                      concPM2P5, concPM10, &
+                      rho, &
+                      molNO,molNO2,molSO2,molCO,molNH3, &
+                      molETHE, molTOLU, molHCHO, molISOP, &
+                      choice)
+      use chm_consphychm_mod
+!  
+! "choice" = 1:  calculate the total column mass (units molecules/m2)
+! "choice" = 2:  calculate the difference in the total column mass,
+!                units molecules/m2.
+! 
+      implicit none
+!  Input variables:
+      integer :: ni,nk, choice
+      real :: dt, area, molNO,molNO2,molSO2,molCO,molNH3
+      real :: molETHE, molTOLU, molHCHO, molISOP
+      real, dimension(ni,nk) :: thick
+      real, dimension(ni) :: colNO,colNO2,colSO2,colCO,colNH3
+      real, dimension(ni) :: colETHE, colTOLU, colHCHO, colISOP
+      real, dimension(ni) :: colPM2P5, colPM10
+      real, dimension(ni,nk) :: concNO, concNO2,concSO2,concCO,concNH3
+      real, dimension(ni,nk) :: concETHE,concTOLU,concHCHO,concISOP
+      real, dimension(ni,nk) :: concPM2P5, concPM10
+      real, dimension(ni,nk) :: rho
+!  Local variables:
+      integer :: i,k
+      real, dimension(ni,11) :: column
+      real :: conv
+      real :: conv2
+!
+!  Calculate column totals from concentrations:
+!  column total units are molecules/m2 for gases, ug/m2 for particles
+!
+      column = 0.0
+      do k = 1,nk
+       do i = 1,ni
+          conv = 1.E-6*rho(i,k)*thick(i,k) * avno
+          conv2 = rho(i,k)* thick(i,k)
+          column(i,1) = column(i,1) + concNO(i,k)  * conv / molNO 
+          column(i,2) = column(i,2) + concNO2(i,k) * conv / molNO2
+          column(i,3) = column(i,3) + concSO2(i,k) * conv / molSO2
+          column(i,4) = column(i,4) + concCO(i,k)  * conv / molCO
+          column(i,5) = column(i,5) + concNH3(i,k) * conv / molNH3
+          column(i,6) = column(i,6) + concETHE(i,k) * conv / molETHE
+          column(i,7) = column(i,7) + concTOLU(i,k) * conv / molTOLU
+          column(i,8) = column(i,8) + concHCHO(i,k) * conv / molHCHO
+          column(i,9) = column(i,9) + concISOP(i,k) * conv / molISOP
+          column(i,10) = column(i,10) + concPM2P5(i,k) * conv2
+          column(i,11) = column(i,11) + concPM10(i,k) * conv2
+       end do
+      end do
+!
+!  If choice = 1, place column molecules/m2 in the output array
+!  If choice = 2, place change in column molecules/m2 in the output array
+!
+      if(choice == 1) then
+           do i = 1,ni
+            colNO(i)  = column(i,1)
+            colNO2(i) = column(i,2)
+            colSO2(i) = column(i,3)
+            colCO(i)  = column(i,4)
+            colNH3(i) = column(i,5)
+            colETHE(i) = column(i,6)
+            colTOLU(i) = column(i,7)
+            colHCHO(i) = column(i,8)
+            colISOP(i) = column(i,9)
+            colPM2P5(i) = column(i,10)
+            colPM10(i) = column(i,11)
+           end do
+      end if
+      if(choice == 2) then
+           do i=1,ni
+            colNO(i)  = column(i,1) - colNO(i)
+            colNO2(i) = column(i,2) - colNO2(i)
+            colSO2(i) = column(i,3) - colSO2(i)
+            colCO(i)  = column(i,4) - colCO(i)
+            colNH3(i) = column(i,5) - colNH3(i)
+            colETHE(i) = column(i,6) - colETHE(i)
+            colTOLU(i) = column(i,7) - colTOLU(i)
+            colHCHO(i) = column(i,8) - colHCHO(i)
+            colISOP(i) = column(i,9) - colISOP(i)
+            colPM2P5(i) = column(i,10) - colPM2P5(i)
+            colPM10(i) = column(i,11) - colPM10(i)
+           end do
+      end if
+      if(choice /= 1 .and. choice /= 2) then
+          write(6,*) 'Inappropriate value for choice in mach_emit_col.'
+          write(6,*) 'Stopping code'
+          stop
+      end if
+!
+      return
+      end
