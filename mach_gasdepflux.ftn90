@@ -1,0 +1,31 @@
+subroutine mach_gasdepflux(conc, emissions, vd, molwt, dt, rho, area, zf, zh, ni, nk, nsp, Accdep)
+!
+!
+      implicit none
+      integer, intent(in)                :: ni, nk, nsp
+      real, intent(in)                   :: dt
+      real, dimension(ni,nk), intent(in) :: zf, zh
+      real, dimension(nsp),intent(in)    :: molwt
+      real, dimension(ni,nsp), intent(in):: vd, conc, emissions
+      real, dimension(ni), intent(in)    :: rho, area
+      real, dimension(ni,nsp), intent(out) :: accdep
+! local
+      integer                            :: i, sp
+      real                               :: new_conc, del_conc, flux
+      
+! 
+      do sp = 1,nsp
+         do i = 1, ni
+            new_conc = conc(i, sp) + emissions(i,sp) * dt / (rho(i) * area(i) * (zf(i, nk - 1) - zf(i, nk)) )
+            del_conc = new_conc * exp(-vd(i,sp) * dt / (zf(i, nk - 1) - zf(i, nk)))
+            del_conc = new_conc - del_conc
+            flux = del_conc * rho(i) * (zh(i, nk - 1) - zf(i, nk))
+            accdep(i,sp) = flux * 1.E-06 / molwt(sp)
+         end do
+      end do
+!
+!    
+      return
+      end
+
+

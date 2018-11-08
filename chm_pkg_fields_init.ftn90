@@ -1,0 +1,133 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_pkg_fields_init.ftn90
+! Creation       : H. Landry, Feb 2008
+! Description    : Launch the initialization of different packages depending
+!                  on the values read from the gem_settings.nml file
+!
+! Arguments:  IN
+!                chm_pkg_gas_s -> key from gem_settings.nml triggering gas
+!                                 species
+!                chm_pkg_pm_s  -> key from gem_settings.nml triggering PM
+!                                 species
+!
+!============================================================================
+logical function chm_pkg_fields_init(chm_pkg_gas_s, chm_pkg_pm_s, chm_debug_2d_i, chm_debug_3d_i)
+   use chm_utils_mod
+   use chm_species_info_mod
+   use mach_pkg_adom2_mod
+   use mach_pkg_cam2bins_mod
+   use mach_pkg_cam12bins_mod
+   use mach_pkg_misc_mod
+   use mach_pkg_debug_mod
+   implicit none
+
+   character(len = *), intent(in) :: chm_pkg_pm_s, chm_pkg_gas_s
+   integer, optional, intent(in)  :: chm_debug_2d_i, chm_debug_3d_i
+
+   integer tmp, nb_fields
+   integer nb_2dbg_var, nb_3dbg_var
+
+   nb_2dbg_var = 0
+   nb_3dbg_var = 0
+
+   if (present(chm_debug_2d_i)) then
+      nb_2dbg_var = chm_debug_2d_i
+   end if
+
+   if (present(chm_debug_3d_i)) then
+      nb_3dbg_var = chm_debug_3d_i
+   end if
+
+   chm_pkg_fields_init = .true.
+
+   nb_fields = 0
+
+! Misc package always included
+   tmp = pkg_misc_idxinit(nb_fields)
+
+! Debug package
+   if ((nb_2dbg_var > 0) .or. (nb_3dbg_var > 0 )) then
+      if (nb_2dbg_var > MAX_DEBUG_VAR .or. nb_3dbg_var > MAX_DEBUG_VAR) then
+         write(0, *) '### Error in chm_pkg_fields_init ###'
+         write(0, *) '# A maximum of ', MAX_DEBUG_VAR, ' debug '
+         write(0, *) '# variables is allowed for 2D and 3D (32 total)'
+         write(0, *) '# You asked for ', nb_2dbg_var, ' 2D and ', nb_3dbg_var, ' 3D'
+         write(0, *) '###         ABORT         ###'
+         chm_pkg_fields_init = .false.
+         return
+      end if
+      tmp = pkg_debug_idxinit(nb_fields, nb_2dbg_var, nb_3dbg_var)
+!    else
+!       write(0, *) '### Error in chm_pkg_fields_init ###'
+!       write(0, *) '# You asked for a negative number of debug variable'
+!       write(0, *) '# chm_debug_2d_i = ', nb_2dbg_var, ', chm_debug_3d_i ', nb_3dbg_var
+!       write(0, *) '###         ABORT         ###'
+!       chm_pkg_fields_init = .false.
+!       return
+   end if
+
+!  Gas package
+   select case (chm_pkg_gas_s)
+      case ('ADOM2')
+         tmp = pkg_adom2_idxinit(nb_fields)
+      case ('NIL')
+         continue
+      case default
+         write(0, *) '### Error in chm_pkg_fields_init ###'
+         write(0, *) '# GAS fields package unknown: ', chm_pkg_gas_s
+         write(0, *) '###         ABORT         ###'
+         chm_pkg_fields_init = .false.
+         return
+   end select
+
+! Particule package
+   select case (chm_pkg_pm_s)
+      case ('CAM2BINS')
+         tmp = pkg_cam2bins_idxinit(nb_fields)
+      case ('CAM12BINS')
+         tmp = pkg_cam12bins_idxinit(nb_fields)
+      case ('NIL')
+         continue
+      case default
+         write(0, *) '### Error in chm_pkg_fields_init ###'
+         write(0, *) '# PM fields package unknown: ', chm_pkg_pm_s
+         write(0, *) '###         ABORT         ###'
+         chm_pkg_fields_init = .false.
+         return
+   end select
+
+   nb_species = nb_fields
+
+   allocate (species_master(nb_species))
+   sm => species_master ! a shorter alias to species_master
+   call zero_fields(species_master, nb_species)
+
+!        TODO deallocate this monster somewhere!!!
+
+   call pkg_misc_metainit()
+
+   if ((chm_debug_2d_i > 0) .or. (chm_debug_3d_i > 0 )) then
+      call pkg_debug_metainit(chm_debug_2d_i, chm_debug_3d_i)
+   end if
+
+   if (chm_pkg_gas_s == 'ADOM2') then
+      call pkg_adom2_metainit()
+   end if
+   if (chm_pkg_pm_s == 'CAM2BINS') then
+      call pkg_cam2bins_metainit()
+   else if (chm_pkg_pm_s == 'CAM12BINS') then
+      call pkg_cam12bins_metainit()
+   end if
+
+
+end function chm_pkg_fields_init

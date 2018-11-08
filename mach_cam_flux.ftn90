@@ -1,0 +1,122 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_flux.ftn90
+! Creation       : S. Gravel, june 2013 from mach_pm_chem
+!                 
+!
+! Description    : calculates sea-salt emissions for use with v. diffusion
+!
+! Arguments:  IN
+!               tt             -> Temperature (K)
+!               F_chm_ni       -> No. x-direction (W-E) gridpoints
+!               nk             -> No. z-direction vertical levels
+!               fland          -> Landuse
+!               glsea          -> Sea ice fraction
+!               area           -> grid-square area
+!               udiag          -> Screen level X-component of wind
+!               vdiag          -> Screen level Y-component of wind
+!
+!             OUT
+!               F_CHMBUSPER    -> Dynamic bus for chemistry
+!
+!
+!============================================================================
+
+subroutine mach_cam_flux(f_chmbusper, tt, f_chm_ni, nk, fland, glsea, area, udiag, vdiag )
+
+   use mach_cam_headers_mod,  only: mach_cam_sfss
+   use chm_nml_mod,           only: aerosize, chm_seaflux_s
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use chm_utils_mod,         only: global_debug
+   use mach_gas_chemicbi_mod, only: lucprm
+   use mach_cam_pre_mod,      only: icom, maxngs, extra, camextr, aeroname, rhop0, iae1
+   use mach_cam_utils_mod,    only: isize, i_ss
+   implicit none
+
+!  Arguments
+   real, dimension(*), intent(out)  :: f_chmbusper
+   integer, intent(in)  :: f_chm_ni, nk
+   real, intent(in)  :: tt(f_chm_ni, nk)
+   real, intent(in), dimension(f_chm_ni)     :: glsea, udiag, vdiag, area
+   real, intent(in), dimension(f_chm_ni, lucprm) :: fland
+
+!  declare other variables
+   integer :: n, l, irest, il1, il2, nn, i, k
+   integer :: gn_aerochem
+   real, dimension(f_chm_ni)           :: surfwd
+   real, dimension(f_chm_ni, nk+1)     :: throw
+   logical :: local_dbg
+  
+   real,    dimension(:, :)       :: aerosize1(2, isize)
+   real,    dimension(:, :, :)    :: fintrow  (f_chm_ni, isize, 3)
+   real,    dimension(:, :)       :: rsfrow   (f_chm_ni, isize )
+   real,    dimension(:, :, :)    :: dum1 (f_chm_ni, nk+1, isize * icom + maxngs + extra + camextr)
+   real,    dimension(:, :)       :: dum2 (f_chm_ni, nk)
+   real,    dimension(:)          :: dum3 (f_chm_ni)
+
+   real, parameter             :: kg2g = 1.0e3
+!
+   aerosize1   = 0.0
+   fintrow     = 0.0
+   rsfrow      = 0.0
+   surfwd      = 0.0
+   throw       = 0.0
+
+   gn_aerochem = isize * icom + maxngs + extra + camextr
+
+   local_dbg = (.false. .or. global_debug)
+
+!     bin size of dry aerosol
+   do n = 1, isize
+      aerosize1(1, n) = aerosize(n)     * 1.e-6
+      aerosize1(2, n) = aerosize(n + 1) * 1.e-6
+   end do
+
+
+   il1    = 1
+   il2    = f_chm_ni
+
+   irest = 1
+
+   do i = 1, f_chm_ni
+      surfwd(i) = sqrt(udiag(i)**2 + vdiag(i)**2)
+   end do
+   do k=1, nk
+      do i=1, F_chm_ni
+         throw(i, k+1)    = tt(i, k)
+      enddo
+   enddo
+
+   if(local_dbg) then
+      write (chm_lun_out, *) 'Compute sea-salt surface flux by cam scheme: ', chm_seaflux_s
+   end if
+
+   do nn = 1, icom
+      if (aeroname(nn) == 'SEA-SALT') then
+         call mach_cam_sfss(dum1, dum2, f_chm_ni, nk+1, nk, i_ss,                &
+                            throw, gn_aerochem, nn, icom, isize, lucprm, &
+                            aerosize1, surfwd, rhop0, rsfrow, dum3, glsea,          &
+                            fland, fintrow, il1, il2, iae1, irest,.true.)
+      endif
+   enddo 
+
+!    Emissions of sea-salt calculated in kg and account for grid area.
+!    Change units and divide by dxdy to harmonize with other area emissions before
+!    use by diffusion operator
+    do i = 1, f_chm_ni
+       do k = 1, isize
+          f_chmbusper(sm(sp_SS) % bins_array(k) % ae_offset + (i - 1)) = rsfrow(i,k) * area(i) * kg2g
+       enddo
+    enddo
+
+end subroutine mach_cam_flux

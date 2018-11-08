@@ -1,0 +1,58 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_fst_openfile.ftn90
+! Creation       : A. Kallaur & H. Landry - Mars 2007
+! Description    : Open an fst file
+!
+! Extra info     : There is a duplicate version of this code in the
+!                  EMIS_PREP code library called em_open_fstfile.ftn90
+!                  whose functionality is practically identical.
+!
+! Arguments:
+!            IN
+!              file_name -->  speaks for itself
+!              file_type -->  RPN type value for fnom (usually something like 'RND+OLD')
+!              options   -->  RPN options for fstouv  (usually something like 'RND')
+!              lout      --> (File unit for disgnostic messages)
+!
+!            IN/OUT
+!              file_unit --> the file unit to open (an initial value of 0 will
+!                            assign a unit automatically - Recommended)
+!
+!==============================================================================
+subroutine chm_fst_openfile(FILE_UNIT, file_name, file_type, options)
+   use chm_utils_mod
+   implicit none
+
+
+   integer,            intent(inout) :: file_unit
+   character(len = *), intent(in)    :: file_name
+   character(len = *), intent(in)    :: file_type
+   character(len = *), intent(in)    :: options
+
+   integer  fnom, fstouv, longueur
+   external fnom, fstouv, longueur
+
+   if (fnom (file_unit, file_name(1:longueur(file_name)), file_type, 0) < 0) then
+      write(0, *) '### Error in chm_fst_openfile ###'
+      write(0, *) '# fnom failed for:', file_name
+      write(0, *) '###           ABORT          ###'
+      call chm_stop('chm_open_fst_file', -1)
+   endif
+   if (fstouv(file_unit, options) < 0) then
+      write(0, *) '### Error in chm_fst_openfile ###'
+      write(0, *) '# fstouv failed for:', file_name
+      write(0, *) '###           ABORT          ###'
+      call chm_stop('chm_open_fst_file', -1)
+   endif
+
+end subroutine chm_fst_openfile

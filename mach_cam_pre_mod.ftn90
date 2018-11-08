@@ -1,0 +1,199 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_pre_mod.ftn90
+! Creation       : P. Huang, May. 2008 Updated for AURAMS CAM
+!                  P. Huang, Mar. 2008
+! Description    : Declare parameters used for the PM dry deposition scheme
+!                  in CAM
+!                  Declare variables related to the indices of gas and PM
+!
+!TODO: remove the parameters duplicted in mach_gas_drydep_mod
+!      and not used by AURAMS CAM
+!
+!============================================================================
+!     Name              Description
+!============================================================================
+!     icom              number of dry aerosols
+!     aeroname          array for dry aerosol name
+!     rhop0             dry aerosol density [ug/m^3]
+!     z0c               surface roughness length   [m]
+!     lai               leaf area index
+!     pllp              Parameter pllp for dry deposition velocity of PM
+!     aest              Parameter gamma for dry deposition velocity of PM
+!     gamma             Parameter gamma for dry deposition velocity of PM
+!     ng                Number of gas species considered in dry gas deposition of CAM
+!     cspec             Name of gas species considered in dry gas deposition of CAM
+!     scc               for gas species
+!============================================================================
+
+module mach_cam_pre_mod
+   use mach_gas_chemicbi_mod, only: lucprm, nsn
+   use chm_utils_mod, only: nomv_len
+   implicit none
+   save
+
+    integer, parameter :: icom = 8     !8 aerosol speciecs
+    integer, parameter :: ng = 12      !12 gas speciecs counted dry deposition
+
+    character*8, dimension(icom) :: aeroname = (/"SULPHATE", "SEA-SALT", "OMCARBON", "NITRATES", "AMMONIUM", "SOILDUST", "BLCARBON", "PMCARBON"/)
+    real, dimension(icom) :: rhop0 = (/ 1769.0, 2170.0, 1300.0, 1725.0, 1754.3, 2650.0, 1500.0, 1300.0 /)
+
+
+!  parameters for dry deposition
+   real, dimension(lucprm, nsn) :: z0c = reshape ((/                                                          &
+   0.80, 2.65, 0.85, 1.05, 1.15, 0.10, 0.10, 0.04, 0.03, 0.10, 0.03, 0.01, 0.00, 0.00, 1.00, &
+   0.90, 2.65, 0.90, 1.05, 1.15, 0.10, 0.10, 0.04, 0.03, 0.10, 0.03, 0.01, 0.00, 0.00, 1.00, &
+   0.90, 2.65, 0.80, 0.95, 1.15, 0.05, 0.02, 0.04, 0.03, 0.10, 0.02, 0.01, 0.00, 0.00, 1.00, &
+   0.90, 2.65, 0.55, 0.55, 1.15, 0.02, 0.02, 0.04, 0.03, 0.10, 0.02, 0.01, 0.00, 0.00, 1.00, &
+   0.90, 2.65, 0.60, 0.75, 1.15, 0.05, 0.05, 0.04, 0.03, 0.10, 0.03, 0.01, 0.00, 0.00, 1.00                  &
+                                                        /), (/lucprm, nsn/))
+
+!  Leaf Area Index
+   real, dimension(lucprm, nsn) :: lai = reshape ((/                                                          &
+   5.30, 4.50, 1.10, 3.40, 4.50, 2.00, 2.00, 0.00, 0.00, 0.50, 0.20, 0.00, 0.00, 0.00, 0.30, &
+   5.30, 4.50, 0.80, 1.90, 3.50, 1.50, 1.50, 0.00, 0.00, 2.50, 0.20, 0.00, 0.00, 0.00, 0.20, &
+   4.70, 4.50, 0.30, 0.10, 2.30, 1.00, 1.00, 0.00, 0.00, 1.50, 0.10, 0.00, 0.00, 0.00, 0.10, &
+   5.50, 4.50, 0.00, 0.00, 2.30, 0.50, 0.00, 0.00, 0.00, 1.20, 0.00, 0.00, 0.00, 0.00, 0.00, &
+   5.50, 4.50, 0.00, 0.00, 2.30, 0.50, 0.00, 0.00, 0.00, 0.50, 0.10, 0.00, 0.00, 0.00, 0.20     &
+                                                        /), (/lucprm, nsn/))
+!  for particle vd
+   real, dimension(lucprm, nsn) :: pllp = reshape ((/                                                         &
+   2.00, 5.00, 2.00, 5.00, 5.00, 2.00, 2.00, -1.00, -1.00, 10.00, 10.00, -1.00, -1.00, -1.00, 10.00, &
+   2.00, 5.00, 2.00, 5.00, 5.00, 2.00, 2.00, -1.00, -1.00, 10.00, 10.00, -1.00, -1.00, -1.00, 10.00, &
+   2.00, 5.00, 5.00, 10.00, 5.00, 5.00, 10.00, -1.00, -1.00, 10.00, 10.00, -1.00, -1.00, -1.00, 10.00, &
+   2.00, 5.00, 5.00, 10.00, 5.00, 5.00, 10.00, -1.00, -1.00, 10.00, 10.00, -1.00, -1.00, -1.00, 10.00, &
+   2.00, 5.00, 2.00, 5.00, 5.00, 2.00, 2.00, -1.00, -1.00, 10.00, 10.00, -1.00, -1.00, -1.00, 10.00    &
+                                                        /), (/lucprm, nsn/))
+
+   real, dimension(lucprm) :: aest = (/ 1.00, 0.60, 1.10, 0.80, 0.80, 1.20, 1.20, 50.00, 50.00, 1.30, 2.00, 50.00, 100.00, 100.00, 1.50 /)
+   real, dimension(lucprm) :: gamma= (/ -.56, -.58, -.56, -.56, -.56, -.54, -.54, -.54, -.54, -.54, -.54, -.54, -.50, -.50, -.56 /)
+   character(len = nomv_len), dimension(ng) :: cspec= (/ 'SO2 ', 'NO2 ', 'O3  ', 'H2O2', 'HNO3', 'PAN ', 'HCHO', 'ALD2', 'MEK ', 'ROOH', 'RNO3', 'NH3 ' /)
+   real, dimension(ng) :: SCC = (/ 0.99, 0.91, 0.94, 0.62, 0.92, 1.36, 0.64, 0.91, 1.20, 1.07, 1.36, 0.57 /)
+
+   real, dimension(ng) :: AC  = (/ 8.0, 8.0, 15.0, 20.0, 40.0, 4.0, 4.0, 4.0, 4.0, 12.0, 4.0, 10. /)
+   real, dimension(ng) :: RGW = (/ 10., 2000., 2000., 10., 10., 1000., 10., 500., 300., 100., 1000., 10. /)
+   real, dimension(ng) :: RM0 = (/ 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0 /)
+   real, dimension(ng) :: RCW = (/ 50., 500., 500., 10., 10., 500., 50., 500., 500., 50., 500., 50. /)
+
+
+
+!     Name              Description
+!=======================================================================
+!     igs_xxx           index of gas in tracer array
+!     iae_xxx           index of PM in tracer array
+!     IAE1              FIRST AEROSOL BIN TRACER
+!     IAE2              LAST AEROSOL BIN TRACER
+!     IGAS1             FIRST GAS SPECIES TRACER
+!     IGAS2             LAST GAS SPECIES TRACER
+!     maxngs            Maximum number of chemical gas species
+!     extra             Extra 2 species, soa and ccn after gas species in tracer array
+!     camextr           Extra 2 species, h2s and dms after pm species in tracer array
+   integer, parameter :: maxngs = 47
+   integer, parameter :: extra  = 2
+   integer, parameter :: camextr  = 2
+
+!  indices for aurams gases
+   integer igs_SO2
+   integer igs_SO4
+   integer igs_NO
+   integer igs_NO2
+   integer igs_O3
+   integer igs_H2O2
+   integer igs_HNO3
+   integer igs_PAN
+   integer igs_C3H8
+   integer igs_ALKA
+   integer igs_ETHE
+   integer igs_ALKE
+   integer igs_TOLU
+   integer igs_AROM
+   integer igs_HCHO
+   integer igs_ALD2
+   integer igs_MEK
+   integer igs_MGLY
+   integer igs_DIAL
+   integer igs_ROOH
+   integer igs_CRES
+   integer igs_HONO
+   integer igs_RNO3
+   integer igs_ISOP
+   integer igs_HO2
+   integer igs_RO2
+   integer igs_MCO3
+   integer igs_CO
+   integer igs_NH3
+   integer igs_DUST
+   integer igs_OSD
+   integer igs_O
+   integer igs_NO3
+   integer igs_N2O5
+   integer igs_HNO4
+   integer igs_OH
+   integer igs_RO2R
+   integer igs_R2O2
+   integer igs_RO2N
+   integer igs_BZO
+   integer igs_CRG1
+   integer igs_CRG2
+   integer igs_CH4
+   integer igs_C2H6
+   integer igs_H2O
+   integer igs_O2
+   integer igs_M
+   integer IGAS1, IGAS2, NGAS
+   integer igs_SOA, igs_CCN
+
+!  species used by CAM
+   integer igs_H2S, igs_DMS
+   integer IAE1, IAE2, NCAM
+
+!     indices of aerosol components
+   integer iae_SU
+   integer iae_SS
+   integer iae_OC
+   integer iae_NI
+   integer iae_AM
+   integer iae_SD
+   integer iae_EC
+   integer iae_PC
+
+   contains
+!============================================================================
+! Name           : mach_cam_const.ftn90
+!
+! Creation       : P. Huang, Mar. 2008 for adapting AURAMS version CAM
+!                  P. Huang, Dec. 2007 for GEM-MACH
+!
+! Description    : Set constants for CAM
+!
+!     Name              Description
+!============================================================================
+!     WW                EARTH ROTATION RATE (1/SEC)
+!     A                 EARTH RADIUS (M)
+!     GRAV_CAM          GRAVITY ACCELERATION (M/SEC**2)
+!     RGAS              DRY AIR GAS CONSTANT (JOULE/(KG*DEG))
+!     RGOCP             RGAS/(DRY AIR SPECIFIC HEAT)
+!     FVORT             VORTICITY OF EARTH ROTATION
+!============================================================================
+
+   subroutine mach_cam_const
+
+      use chm_consphychm_mod
+      use mach_cam_utils_mod
+      implicit none
+
+      boltzk    = rgasi / avno
+
+      return
+   end subroutine mach_cam_const
+
+end module mach_cam_pre_mod

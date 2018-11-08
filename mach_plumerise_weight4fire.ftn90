@@ -1,0 +1,277 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http: /  / www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet / Project : GEM-MACH
+! Fichier / File   : mach_plumerise_weight4fire.ftn90
+! Creation       : Stephane Gaudreault, Alexander Kallaur, mars 2008 adaptation for GEM-MACH
+!                  Wanmin Gong, for AURAMS 2004
+!                  Original version from Janusz Pudykiewicz for CHRONOS 1995
+!
+! Description    : Assembly of major-point-source emission data for calculation
+!                  with Eulerian transport model simulating atmospheric
+!                  oxidants. Plume rise formula based on Briggs (1984).
+!
+! Arguments:
+!            IN
+!                cur_source                    -> ID of the current source
+!                ni, nk                        -> vertical slab dimensions
+!                gz_magl                       -> height of the model levels (m above ground)
+!                temperature                   -> Model temperature (K)
+!                uu, vv                        -> Wind components
+!                boundlayer_height             -> eight of the boundary layer (m above ground)
+!                friction_velocity             -> Friction Speed U* (in m / s)!
+!                index_above_boundlayer_height -> Index above boundary layer height
+!                safe_obukhov_length           -> Monin obukhov_length
+!
+!             IN / OUT
+!                weight                        -> Weight of each cell in the column over the point source
+!
+! Extra info     :
+!
+!============================================================================
+
+subroutine mach_plumerise_weight4fire (cur_source, ni, nk, gz_magl,                         &
+                                  temperature, uu, vv, boundlayer_height,              &
+                                  index_above_boundlayer_height, safe_obukhov_length,  &
+                                  friction_velocity, fland, luc, plume_top, plume_bottom, WEIGHT)
+
+   use chm_consphychm_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use chm_mjrpts_species_idx_mod
+   use chm_mjrpts_lnklst_mod
+   use chm_ptopo_grid_mod
+   use chm_mjrpts_sortinfo_mod
+   implicit none
+
+!   Subroutine Arguments
+   integer, intent(in)    :: cur_source
+   integer, intent(in)    :: ni, nk
+   real,    intent(in)    :: gz_magl(ni, nk)
+   real,    intent(in)    :: temperature(ni, nk), uu(ni, nk), vv(ni, nk)
+   real,    intent(in)    :: boundlayer_height(ni)
+   integer, intent(in)    :: index_above_boundlayer_height(ni)
+   real,    intent(in)    :: safe_obukhov_length(ni)
+   real,    intent(in)    :: friction_velocity(ni)
+   integer, intent(in)    :: luc ! not used here but keep in the arg list to be consistent with orther fire plume algorithm
+   real,    intent(in)    :: fland(ni,luc) ! not used here but keep in the arg list to be consistent with orther fire plume algorithm
+   real,    intent(out)   :: plume_top, plume_bottom
+   real,    intent(out)   :: weight(nk)
+
+!  Local variables
+   integer :: k                           ! loop index
+   integer :: stack_i                     ! Nearest integer gridpoint centre locations to the real number gridpoint locations
+   integer :: stack_k                     ! Level above the stack height
+   real    :: buoyancy_flux
+   real    :: air_temp                    ! Air temperature at position of the stack
+   real    :: distance                    ! distance used in interpolation
+   real    :: delh1, delh2, plumerise
+   real    :: dtdz
+   real    :: distance_ratio              ! distance from the top of the boundary layer_height to the stack divided by the height of the plume
+   real    :: convective_velocity         ! The convective velocity scale is used as an indicator to identify the particular stability regime
+   real    :: wind_speed_above            ! Horizontal wind speed at the level above the stack
+   real    :: wind_speed_bellow           ! Horizontal wind speed at the level bellow the stack
+   real    :: wind_speed                  ! Horizontal wind speed for the layer_height
+   real    :: stability_parameter         ! Stability parameter used to distinguish the different stability regime (Briggs, 1984)
+   real    :: penetration                 ! Plume penetration to free troposphere
+!   real    :: plume_top                   ! height of the plume top in meter above ground
+!   real    :: plume_bottom                ! height of the plume bottom in meter above ground
+   integer :: index_top                   ! height of the plume top in grid coordinate
+   integer :: index_bottom                ! height of the plume bottom in grid coordinate
+   real    :: layer_height(nk)
+   real    :: ratio
+   real    :: stdev                       ! standard deviation used in the gaussian case
+   real    :: column_sum
+   real    :: stack_temperature           ! Stack temperature in Kelvin
+   real    :: stack_magl                  ! Stack height in meter above ground
+   real    :: stack_flow_rate             ! Stack Volume Flow rates ( in meters^3 / sec)
+   logical              :: local_dbg
+
+! Constants
+   real, parameter :: THRESHOLD = 1.e-02
+
+   local_dbg = (.false. .or. global_debug)
+
+   stack_i           = nint(mjpt_gilc(cur_source))
+   stack_magl        = mjpt_hgt(cur_source)
+   stack_temperature = mjpt_tem(cur_source)
+   stack_flow_rate   = mjpt_vel(cur_source)
+
+   do k = nk, 1, -1
+      if (stack_magl <= gz_magl(stack_i, k)) then
+         stack_k = k
+         exit
+      end if
+   end do
+
+   distance   = (gz_magl(stack_i, stack_k) - stack_magl) / (gz_magl(stack_i, stack_k) - gz_magl(stack_i, stack_k + 1))
+   air_temp   = Linear_Interpolation(temperature(stack_i, stack_k + 1), temperature(stack_i, stack_k), distance )
+
+   wind_speed_above  = sqrt(uu(stack_i, stack_k)**2 + vv(stack_i, stack_k)**2)
+   wind_speed_bellow = sqrt(uu(stack_i, stack_k + 1)**2 + vv(stack_i, stack_k + 1)**2)
+   wind_speed = Linear_Interpolation( wind_speed_bellow, wind_speed_above, distance)
+
+   if (stack_temperature > air_temp) then
+      buoyancy_flux = (GRAV / PI) * stack_flow_rate * (stack_temperature - air_temp) / stack_temperature
+   else
+      buoyancy_flux = 0.0
+   end if
+
+   ! Evaluate stability parameter s = (g / theta)*dtheta / dz
+   ! Note that s is defined as (g / Ta)*dtheta / dz in several references but the former is defined in Briggs (1984) and
+   ! is consistent with the definition of N^2 (N: Brunt-Vaisala frequency)
+   ! Note also dtheta / dz = (theta / T)(dT / dz + 0.0098)
+   dtdz = (air_temp - temperature(stack_i, stack_k + 1)) / (stack_magl -  gz_magl(stack_i, stack_k + 1))
+   ! Minimum potential temp gradient for stable condition
+   dtdz = max(dtdz, -0.005)
+   stability_parameter =  (GRAV / air_temp) * (dtdz + 0.0098)
+
+   ! Plume rise under different stability conditions
+
+   if (stack_magl < boundlayer_height(stack_i)) then
+      if (safe_obukhov_length(stack_i) < 0.0 .and. (-stack_magl / safe_obukhov_length(stack_i)) > 4.0) then
+         ! Unstable condition
+
+         convective_velocity = -2.5 * (friction_velocity(stack_i)**3) / safe_obukhov_length(stack_i)
+
+         ! The plume rise formula proposed by Briggs (1984) is given by
+         delh1 = 3.0 * (buoyancy_flux / wind_speed)**(3.0 / 5.0) / (convective_velocity**(2.0 / 5.0))
+
+         ! However, Briggs (1983) suggested a reasonable approximation for the convective velocity scale.
+         ! The rational for this simplification is due to the lack of data for evaluation.
+         delh2 = 30.0 * (buoyancy_flux / wind_speed)**(3.0 / 5.0)
+
+         ! We take the minimum from these two formulations
+         plumerise = min(delh1, delh2)
+
+      else if (safe_obukhov_length(stack_i) >= 0.0 .and. (stack_magl / safe_obukhov_length(stack_i)) > 0.5) then
+         ! Stable condition
+
+         plumerise = 2.6 * (buoyancy_flux / (wind_speed * stability_parameter))**(1.0 / 3.0)
+      else
+         ! Neutral condition
+
+         delh1 = 39.0 * buoyancy_flux**(3.0 / 5.0) / wind_speed
+         delh2 = 1.2 * (buoyancy_flux / (friction_velocity(stack_i) * friction_velocity(stack_i) * wind_speed))**(3.0 / 5.0) * &
+                       (stack_magl + 1.3 * buoyancy_flux / (friction_velocity(stack_i) * friction_velocity(stack_i) * wind_speed))**(2.0 / 5.0)
+         plumerise = min(delh1, delh2)
+      end if
+   else
+      ! Outside the boundary layer_height
+      plumerise = 2.6 * (buoyancy_flux / (wind_speed * stability_parameter))**(1.0 / 3.0)
+   end if
+
+   ! Calculate plume penetration
+
+   if ((stack_magl < boundlayer_height(stack_i)) .and. (plumerise > 0.0)) then
+      distance_ratio = (boundlayer_height(stack_i) - stack_magl) / plumerise
+      if (distance_ratio >= 1.5) then
+         penetration = 0.0
+      else if (distance_ratio <= 0.5) then
+         penetration = 1.0
+      else
+         penetration = 1.5 - distance_ratio
+      end if
+      plumerise = min((0.62 + 0.38 * penetration) * (boundlayer_height(stack_i) - stack_magl), plumerise)
+   else
+      penetration = 0.0
+   end if
+
+   if (plumerise > THRESHOLD) then
+      plume_top     = stack_magl + 1.5 * plumerise
+      plume_bottom  = stack_magl + 0.5 * plumerise
+
+      if (penetration > 0.0) then
+         plume_top = min(boundlayer_height(stack_i), plume_top )
+         plumerise = plume_top - plume_bottom
+      end if
+
+      ! Assuming uniformly mixed plume within BL under unstable condition
+      ! (mixed between surface and plume top level at the moment)
+      if (safe_obukhov_length(stack_i) < 0.0 .and. (-stack_magl / safe_obukhov_length(stack_i)) > 4.0) then
+         plume_bottom = gz_magl(stack_i, nk)
+         plumerise    = plume_top - plume_bottom
+      end if
+
+      ! layer_height containing plume top and bottom
+      plume_top = max(plume_top, gz_magl(stack_i, nk))
+      plume_top = min(plume_top, gz_magl(stack_i, 1))
+
+      do k = nk, 1, -1
+         index_top = k
+         if (gz_magl(stack_i, k) > plume_top) then
+            exit
+         end if
+      end do
+
+      plume_bottom = max(plume_bottom, gz_magl(stack_i, nk))
+      plume_bottom = min(plume_bottom, gz_magl(stack_i, 1))
+      do k = nk, 1, -1
+         index_bottom = k
+         if (gz_magl(stack_i, k) > plume_bottom) then
+            exit
+         end if
+      end do
+
+      ! layer_height emission amongst layer_heights
+
+      layer_height = 0
+
+      ! Check if plumetop is below boundary layer height
+      if (penetration > 0.0 .and. index_above_boundlayer_height(stack_i) <= index_top) then
+         layer_height(index_above_boundlayer_height(stack_i) + 1) = penetration
+         ratio = (1.0 - penetration) / plumerise
+      else
+         ratio = 1.0 / plumerise
+      end if
+
+      if (index_bottom == index_top) then
+         layer_height(index_top + 1) = layer_height(index_top + 1) + 1.0 - penetration
+
+      else
+         layer_height(index_bottom + 1) = (gz_magl(stack_i, index_bottom) - plume_bottom) * ratio
+         layer_height(index_top + 1)    = layer_height(index_top + 1) + (plume_top - gz_magl(stack_i, index_top + 1)) * ratio
+         if ((index_bottom - index_top) > 1) then
+            do k = index_bottom, index_top + 2, -1
+               layer_height(k) = (gz_magl(stack_i, k - 1) - gz_magl(stack_i, k)) * ratio
+            end do
+         end if
+      end if
+
+      do k = nk, 2, -1
+         weight(k) = layer_height(k) / (gz_magl(stack_i, k - 1) - gz_magl(stack_i, k))
+      end do
+
+   else
+
+      ! Non buoyant plumes are treated as Gaussian plume
+      if (stack_magl > boundlayer_height(stack_i)) then
+         stdev = 50.0
+      else
+         stdev = 500.0
+      endif
+      column_sum = 0.0
+      do k = nk, 2, -1
+         column_sum = column_sum + exp( -(gz_magl(stack_i, k) - stack_magl)**2 / (2.0 * stdev * stdev)) * (gz_magl(stack_i, k-1) - gz_magl(stack_i, k))
+      end do
+
+      do k = nk, 1, -1
+         weight(k) = exp(-(gz_magl(stack_i, k) - stack_magl)**2 / (2.0 * stdev * stdev)) / column_sum
+      end do
+   end if
+
+   contains
+      real function Linear_Interpolation(val1, val2, distance)
+         implicit none
+         real, intent(in) :: val1, val2, distance
+         Linear_Interpolation = val1 + ((val2 - val1) * distance)
+      end function
+
+end subroutine mach_plumerise_weight4fire

@@ -1,0 +1,344 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_headers_mod.ftn90
+! Creation       : H. Landry, S. Menard, Mai 2008
+! Description    : Modules defining explicit interfaces for mach subroutines
+!
+! Extra info     :
+!
+!============================================================================
+
+module mach_headers_mod
+   interface
+
+      subroutine mach_bin_number(n10,n2p5,rho,aeronum,ni,nk,isize)
+        integer ni,nk,isize
+        real aeronum(ni,nk,isize)
+        real rho(ni,nk)
+        real n10(ni,nk)
+        real n2p5(ni,nk)
+      end subroutine mach_bin_number
+
+      subroutine mach_biog_emissions(ni, par, pardb, pardif, surf_temp_p, cosine_solar_p,                      &
+                                     summer_no_std_p, summer_isop_std_p, summer_mono_std_p, summer_voc_std_p,  &
+                                     winter_no_std_p, winter_isop_std_p, winter_mono_std_p, winter_voc_std_p,  &
+                                     lai_p, seasons,                                                           &
+                                     EMISSBIO_NO_P, EMISSBIO_VOC_P, EMISSBIO_ISOP_P, EMISSBIO_MONO_P   )
+         integer ni
+         real    surf_temp_p(ni), cosine_solar_p(ni)
+         real    par(ni), pardb(ni), pardif(ni)
+         real    lai_p(ni)
+         real    summer_no_std_p(ni),   winter_no_std_p(ni)
+         real    summer_isop_std_p(ni), winter_isop_std_p(ni)
+         real    summer_mono_std_p(ni), winter_mono_std_p(ni)
+         real    summer_voc_std_p(ni),  winter_voc_std_p(ni)
+         real    seasons(ni)
+         real    emissbio_no_p(ni), emissbio_voc_p(ni), emissbio_isop_p(ni), emissbio_mono_p(ni)
+      end subroutine mach_biog_emissions
+
+      subroutine mach_biog_main(f_chmbusper,    &
+                                ni,             &
+                                surf_temp_p,    &
+                                solar_irr_p,    &
+                                COSINE_SOLAR_P, &
+                                surf_press_p,   &
+                                sebstepNO,      &
+                                sestepOVOC,     &
+                                sestepISOPB,    &
+                                sestepMONO )
+         integer             ni
+         real,  dimension(*) :: f_chmbusper
+         real                surf_temp_p   (ni)     ! surface temperature 3D
+         real                solar_irr_p   (ni)     ! solar irradiation 2D
+         real                cosine_solar_p(ni)     ! cosine of solar angle 2D
+         real                surf_press_p  (ni)     ! surface pressure 2D
+         real                sebstepNO     (ni)
+         real                sestepOVOC    (ni)
+         real                sestepISOPB   (ni)
+         real                sestepMONO    (ni) 
+      end subroutine mach_biog_main
+
+      subroutine mach_biog_parcalc(ni, solar_irr_p, cosine_solar_p, surf_press_p, PAR, PARDB, PARDIF)
+         integer ni
+         real    solar_irr_p(ni), cosine_solar_p(ni), surf_press_p(ni)
+         real    par(ni), pardb(ni), pardif(ni)
+      end subroutine mach_biog_parcalc
+
+      subroutine mach_calc_season(seasn, rad_glt, nis, iday)
+         integer              nis
+         integer              iday
+         real, dimension(nis) :: rad_glt
+         real, dimension(nis) :: seasn
+      end subroutine mach_calc_season
+
+      subroutine mach_diffusion(f_chmbusdyn, f_chmbusper, f_chmbusvol, kt, rho, area, zf,  zh,   dt, f_step, &
+                                f_chm_ni, nk, diffused_species, nsp_diff, &
+                                dd_so2, dd_h2so4,                     &
+                                dd_no, dd_no2, dd_o3, dd_hno3,    &
+                                dd_pan, dd_hono, dd_rno3, dd_nh3, &
+                                dd_noy, dd_h2o2, dd_hcho, deposited_diag, nsp_dep_diag)
+         real, dimension(*) :: f_chmbusdyn, f_chmbusper, f_chmbusvol
+         integer            f_chm_ni, nk
+         real               rho(f_chm_ni, nk), area(f_chm_ni), kt(f_chm_ni, nk)
+         real               dt, zf(f_chm_ni, nk), zh(f_chm_ni, nk)
+         real, dimension(f_chm_ni) :: dd_so2, dd_h2so4,dd_no, dd_no2, dd_o3, dd_hno3, &
+                                      dd_pan, dd_hono, dd_rno3, dd_nh3, dd_noy, dd_h2o2, dd_hcho
+         integer            f_step
+         integer            nsp_diff, nsp_dep_diag
+         integer, dimension(nsp_diff) :: diffused_species
+         integer, dimension(nsp_dep_diag) :: deposited_diag
+      end subroutine mach_diffusion
+
+      subroutine mach_diff_boundary(CONC, emissions, vd, ubf, kt, area, rho,      &
+                                 ni, ni_net, nsp_diff, nk, zf, zh, dt, nb_bins )
+         integer ni, ni_net, nk, nsp_diff, nb_bins
+         real    dt, zf(ni, nk), zh(ni, nk), kt(ni, nk)
+         real    vd(ni_net), emissions(ni_net), ubf(ni_net)
+         real    area(ni), rho(ni, nk)
+         real    conc(ni_net, nk)
+      end subroutine mach_diff_boundary
+
+      subroutine mach_diff_flux(CONC, emissions, vd, ubf, kt, area, rho,      &
+                                 ni, ni_net, nsp_diff, nk, zf, zh, dt, nb_bins )
+         integer ni, ni_net, nk, nsp_diff, nb_bins
+         real    dt, zf(ni, nk), zh(ni, nk), kt(ni, nk)
+         real    vd(ni_net), emissions(ni_net), ubf(ni_net)
+         real    area(ni), rho(ni, nk)
+         real    conc(ni_net, nk)
+      end subroutine mach_diff_flux
+
+      subroutine mach_input_check(KT_NEW, kt_old, gzmoins6, bd_height, sx, ux, f_chm_ni, nk)
+         integer nk, f_chm_ni
+         real    gzmoins6(f_chm_ni, nk)
+         real    sx (f_chm_ni), ux(f_chm_ni)
+         real    bd_height(f_chm_ni)
+         real    kt_old(f_chm_ni, nk)
+         real    kt_new(f_chm_ni, nk)
+      end subroutine mach_input_check
+
+      subroutine mach_landuse (landuse_in, LANDUSE_OUT, f_chm_ni)
+         integer f_chm_ni
+         real    landuse_in(F_chm_ni,  26)
+         real    landuse_out(F_chm_ni, 15)
+      end subroutine mach_landuse
+
+      subroutine mach_main (  f_chmbusent     , f_chmbusper      , f_chmbusdyn    , f_chmbusvol     , &
+                           F_chm_bent_siz  , F_chm_bdyn_siz   , F_chm_bper_siz , F_chm_bvol_siz  , &
+                           F_chm_bdyn_top  , F_chm_bper_top   , F_chm_bvol_top , F_chm_bent_top  , &
+                           F_busent        , F_BUSDYN         , F_busper       , F_busvol        , &
+                           F_bent_siz      , F_bdyn_siz       , F_bper_siz     , F_bvol_siz      , &
+                           F_j             , F_step           , F_cpu          , F_p_ni          , &
+                           F_chm_ni        , Nk               , F_busdyn_o     , istcond         , &
+                           iconvec                     )
+         integer f_cpu, f_j    , f_step        , f_p_ni        , f_chm_ni    ,  nk
+         integer f_bent_siz    , f_bdyn_siz    , f_bper_siz    , f_bvol_siz
+         integer f_chm_bent_siz, f_chm_bdyn_siz, f_chm_bper_siz, f_chm_bvol_siz
+         integer f_chm_bent_top, f_chm_bdyn_top, f_chm_bper_top, f_chm_bvol_top
+         real    f_chmbusent(f_chm_bent_siz)   , f_chmbusper(f_chm_bper_siz)
+         real    f_chmbusdyn(f_chm_bdyn_siz)   , f_chmbusvol(f_chm_bvol_siz)
+         real    f_busent(f_bent_siz)          , f_busper(f_bper_siz)
+         real    f_busvol(f_bvol_siz)          , f_busdyn_o(f_bdyn_siz)
+         real    f_busdyn(f_bdyn_siz)
+         integer istcond                       , iconvec
+      end subroutine mach_main
+
+      subroutine mach_maketend(F_p_ni   , F_chm_ni  , nk    , QI_EXIST, &
+                              HUTEND   , QCTEND    , QRTEND,           &
+                              QITEND   ,                               &
+                              QGTEND   ,                               &
+                              QNTEND   ,                               &
+                              QHTEND   ,                               &
+                              QNET     , QNETTEND  ,                   &
+                              F_busvol , F_bvol_siz, istcond)
+         integer F_bvol_siz
+         integer F_p_ni    , F_chm_ni, nk
+         logical qi_exist
+         real    hutend   (F_p_ni, nk) , qctend   (F_p_ni, nk), qrtend(F_p_ni, nk)
+         real    qitend(F_p_ni, nk)
+         real    qgtend(F_p_ni, nk)
+         real    qntend   (F_p_ni, nk)
+         real    qhtend   (F_p_ni, nk)
+         real    qnet     (F_p_ni, nk) , qnettend (F_p_ni, nk)
+         real    F_busvol (F_bvol_siz)
+         integer istcond
+      end subroutine mach_maketend
+      
+      subroutine mach_output (F_CHMBUSVOL,f_chmbusdyn, f_chm_ni, nk)
+         real, dimension(*) :: f_chmbusvol
+         real, dimension(*) :: f_chmbusdyn
+         integer            f_chm_ni, nk
+      end subroutine mach_output
+
+      subroutine mach_plumerise (ni, nk, cell_area, time_step_r, gz_chm_masl, air_density, &
+                                 temperature, uu, vv, boundLayer_height,                 &
+                                 obukhov_length, friction_velocity, F_CHMBUSDYN,         &
+                                 slab_num, f_chm_bdyn_siz, fland)
+         integer ni, nk
+         real    cell_area
+         real    time_step_r
+         real    gz_chm_masl(ni, nk), air_density(ni, nk), temperature(ni, nk), uu(ni, nk), vv(ni, nk)
+         real    boundLayer_height(ni)
+         real    obukhov_length(ni)
+         real    friction_velocity(ni)
+         integer slab_num
+         integer f_chm_bdyn_siz
+         real    f_chmbusdyn(f_chm_bdyn_siz)
+         real    fland(ni,15)
+      end subroutine mach_plumerise
+
+      subroutine mach_plumerise_apply(FCONC, emiss_rate, weight, rho, ni, nk, stack_i, dt, cell_area)
+         integer ni,nk,stack_i
+         real    emiss_rate
+         real    dt
+         real    weight(nk)
+         real    rho   (ni,nk)
+         real    fconc (ni,nk)
+         real    cell_area
+      end subroutine mach_plumerise_apply
+
+      subroutine mach_plumerise_weight (cur_source, ni, nk, gz_magl,                         &
+                                       temperature, uu, vv, boundlayer_height,              &
+                                       index_above_boundlayer_height, safe_obukhov_length,  &
+                                       friction_velocity, WEIGHT)
+         integer cur_source
+         integer ni, nk
+         real    gz_magl(ni, nk)
+         real    temperature(ni, nk), uu(ni, nk), vv(ni, nk)
+         real    boundlayer_height(ni)
+         integer index_above_boundlayer_height(ni)
+         real    safe_obukhov_length(ni)
+         real    friction_velocity(ni)
+         real    weight(nk)
+      end subroutine mach_plumerise_weight
+
+      subroutine mach_plumerise_weight4fire (cur_source, ni, nk, gz_magl,                         &
+                                       temperature, uu, vv, boundlayer_height,              &
+                                       index_above_boundlayer_height, safe_obukhov_length,  &
+                                       friction_velocity, fland, luc, plume_top, plume_bottom, WEIGHT)
+         integer cur_source
+         integer ni, nk
+         real    gz_magl(ni, nk)
+         real    temperature(ni, nk), uu(ni, nk), vv(ni, nk)
+         real    boundlayer_height(ni)
+         integer index_above_boundlayer_height(ni)
+         real    safe_obukhov_length(ni)
+         real    friction_velocity(ni)
+         integer luc
+         real    fland(ni,luc)
+         real    plume_top, plume_bottom
+         real    weight(nk)
+      end subroutine mach_plumerise_weight4fire
+
+      subroutine mach_tridiag (a, b, c, r, bet, gam, u, ni, nk)
+         integer ni, nk
+         real    a(ni, nk), b(ni, nk), c(ni, nk), r(ni, nk)
+         real    u(ni, nk)
+         real    bet(ni), gam(ni, nk)
+      end subroutine mach_tridiag
+
+      subroutine mach_updatdyn(nk, f_chm_ni, UU, uplus, uphytd, VV, vplus, vphytd, TT, tplus, tphytd,             &
+                              qcplus, qnet, qnettend, HU, huplus, hutend, QC, qctend, CW, fice, qi_exist,         &
+                              QR, QI, qiplus, qitend, QG, qgplus, qgtend, QN, qnplus, qntend, QH, qhplus, qhtend, &
+                              GZ_CHM, GZ_K, gzmoins6, sfc_geop, pplus, sigm, RHO, P2D, f_p_ni     )
+            integer  nk, f_chm_ni, f_p_ni
+            logical  qi_exist
+            real     uu(f_chm_ni, nk), vv(f_chm_ni, nk), tt(f_chm_ni, nk), hu(f_chm_ni, nk)
+            real     qc(f_chm_ni, nk), cw(f_chm_ni, nk), qr(f_chm_ni, nk), qi(f_chm_ni, nk)
+            real     qg(f_chm_ni, nk), qn(f_chm_ni, nk), qh(f_chm_ni, nk)
+            real     uplus   (f_chm_ni, nk), uphytd  (f_chm_ni, nk)
+            real     vplus   (f_chm_ni, nk), vphytd  (f_chm_ni, nk)
+            real     tplus   (f_chm_ni, nk), tphytd  (f_chm_ni, nk)
+            real     qcplus  (f_chm_ni, nk)
+            real     qnet    (f_chm_ni, nk), qnettend(f_chm_ni, nk)
+            real     huplus  (f_chm_ni, nk), hutend  (f_chm_ni, nk)
+            real     qctend  (f_chm_ni, nk), fice    (f_chm_ni, nk)
+            real     qiplus  (f_chm_ni, nk), qitend  (f_chm_ni, nk)
+            real     qnplus  (f_chm_ni, nk), qntend  (f_chm_ni, nk)
+            real     qhplus  (f_chm_ni, nk), qhtend  (f_chm_ni, nk)
+            real     qgplus  (f_chm_ni, nk), qgtend  (f_chm_ni, nk)
+            real     gz_chm  (f_chm_ni, nk), gz_k    (f_chm_ni, nk)
+            real     gzmoins6(f_chm_ni, nk), sigm    (f_p_ni  , nk)
+            real     sfc_geop(f_p_ni)      , pplus   (f_p_ni)
+            real     rho     (f_p_ni  , nk), p2d     (f_p_ni  , nk)
+      end subroutine mach_updatdyn
+
+   
+      subroutine mach_emit_col(f_chm_ni,nk,thick,dt,area, &
+                      colNO,colNO2,colSO2,colCO,colNH3,  &
+                      colETHE, colTOLU, colHCHO, colISOP, &
+                      colPM2P5, colPM10, &
+                      concNO,concNO2,concSO2,concCO,concNH3, &
+                      concETHE, concTOLU, concHCHO, concISOP, &
+                      concPM2P5, concPM10, &
+                      rho, &
+                      molNO,molNO2,molSO2,molCO,molNH3, &
+                      molETHE, molTOLU, molHCHO, molISOP, &
+                      choice)
+         integer ni,nk, choice
+         real dt, area, molNO,molNO2,molSO2,molCO,molNH3
+         real molETHE, molTOLU, molHCHO, molISOP
+         real thick(f_chm_ni,nk)
+         real colNO(f_chm_ni),colNO2(f_chm_ni),colSO2(f_chm_ni)
+         real colCO(f_chm_ni),colNH3(f_chm_ni)
+         real colETHE(f_chm_ni),colTOLU(f_chm_ni),colHCHO(f_chm_ni)
+         real colISOP(f_chm_ni),colPM2P5(f_chm_ni),colPM10(f_chm_ni)
+         real concNO(f_chm_ni,nk), concNO2(f_chm_ni,nk),concSO2(f_chm_ni,nk)
+         real concCO(f_chm_ni,nk), concNH3(f_chm_ni,nk)
+         real concETHE(f_chm_ni,nk),concTOLU(f_chm_ni,nk),concHCHO(f_chm_ni,nk)
+         real concISOP(f_chm_ni,nk),concPM2P5(f_chm_ni,nk),concPM10(f_chm_ni,nk)
+         real rho(f_chm_ni,nk)
+      end subroutine mach_emit_col  
+
+      subroutine mach_transfer_col(ni,&
+                                   se_NO,    se_NO2,   &
+                                   se_SO2,   se_CO,    &
+                                   se_NH3,   se_bNO,   &
+                                   se_ETHE,  se_TOLU,  &
+                                   se_HCHO,  se_ISOPA, &
+                                   se_ISOPB, se_MONO,  &
+                                   se_OVOC,  se_PM2P5, &
+                                   se_PM10,            &
+                                   sesNO,    sesNO2,   &
+                                   sesSO2,   sesCO,    &
+                                   sesNH3,   sesbNO,   &
+                                   sesETHE,  sesTOLU,  &
+                                   sesHCHO,  sesISOPA, &
+                                   sesISOPB, sesMONO,  &
+                                   sesOVOC, sesPM2P5,  &
+                                   sesPM10)
+
+         integer ni 
+         real se_NO(ni),se_NO2(ni),se_SO2(ni)
+         real se_CO(ni),se_NH3(ni),se_bNO(ni)
+         real se_ETHE(ni),se_TOLU(ni),se_HCHO(ni)
+         real se_ISOPA(ni),se_ISOPB(ni),se_MONO(ni)
+         real se_OVOC(ni),se_PM2P5(ni),se_PM10(ni)
+         real sesNO(ni),sesNO2(ni),sesSO2(ni)
+         real sesCO(ni),sesNH3(ni),sesbNO(ni)
+         real sesETHE(ni),sesTOLU(ni),sesHCHO(ni)
+         real sesISOPA(ni),sesISOPB(ni),sesMONO(ni)
+         real sesOVOC(ni),sesPM2P5(ni),sesPM10(ni)
+      end subroutine mach_transfer_col
+     
+      subroutine mach_sat_zero(f_chm_ni,array)
+      integer f_chm_ni
+      real array(f_chm_ni)
+      end subroutine mach_sat_zero 
+
+      subroutine mach_perm_transfer(chemdyn,phyper,asize)
+      integer :: asize
+      real :: chemdyn(asize)
+      real :: phyper(asize)
+      end subroutine mach_perm_transfer
+
+   end interface
+end module mach_headers_mod

@@ -1,0 +1,6 @@
+!  contains aerosol size bin boundary array
+!=============================================================================================
+      real aerosize1, aerosizeb
+      logical chm_direct, chm_indirect
+      integer chm_strt_step
+      common / arosz / aerosize1(2,12), aerosizeb(13), chm_direct, chm_indirect, chm_strt_step

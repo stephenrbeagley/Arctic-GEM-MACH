@@ -1,0 +1,119 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_landuse.ftn90
+! Creation       : S. Menard, A. Kallaur  - August 2007
+! Description    : Convert into 15 landuse categories the original 26 landuse of GEM.
+!                  This is required to do the dry deposition of chemical species.
+!
+! Extra info     : This mapping is also used in GRAHM model (Ref: D. Davignon, L.P. Crevier / S. Menard)
+!
+!                  26 landuse (original GEM)    --> 15 landuse (GEM-MACH dry deposition)
+!                  =====================================================================
+!                  1   water                                14  Ocean
+!                  2   ice                                    12  Ice caps and glaciers
+!                  3   inland lake                        13  Inland water
+!                  4   evergreen needleleaf trees    1  Evergreen needleleaf forest
+!                  5   evergreen broadleaf trees     2  Evergreen broadleaf forest
+!                  6   deciduous neddleleaf trees    2  Evergreen broadleaf forest
+!                  7   deciduous broadleaf trees     3  Deciduous needleleaf forest
+!                  8   tropical broadleaf trees      4  Deciduous broadleaf forest
+!                  9   drought deciduous trees       4  Deciduous broadleaf forest
+!                  10  evergreen broadleaf shrub    10  Dwarf trees, shrubs with ground cover (tundra)
+!                  11  deciduous shrubs             10  Dwarf trees, shrubs with ground cover (tundra)
+!                  12  thorn shrubs                 10  Dwarf trees, shrubs with ground cover (tundra)
+!                  13  short grass and forbs         6  Grassland
+!                  14  long grass                    6  Grassland
+!                  15  crops                         7  Crops, mixed farming
+!                  16  rice                          7  Crops, mixed farming
+!                  17  sugar                         7  Crops, mixed farming
+!                  18  maize                         7  Crops, mixed farming
+!                  19  cotton                        7  Crops, mixed farming
+!                  20  irrigated crops               7  Crops, mixed farming
+!                  21  urban                        15  Urban
+!                  22  tundra                        9  Tundra
+!                  23  swamp                        11  Wet land with plants
+!                  24  desert                        8  Desert
+!                  25  mixed shrubs                  5  Mixed forest
+!                  26  mixed wood forests            5  Mixed forest
+!
+! Arguments:
+!            IN
+!              landuse_in   -->  26 landuse (original GEM)
+!
+!            OUT
+!              landuse_out  --> 15 landuse for dry deposition
+!
+!==============================================================================
+
+subroutine mach_landuse (landuse_in, LANDUSE_OUT, f_chm_ni)
+   use chm_utils_mod
+  implicit none
+
+! Arguments
+    integer, intent(in) :: f_chm_ni
+    real,    intent(in)  :: landuse_in(F_chm_ni,  26)
+    real,    intent(out) :: landuse_out(F_chm_ni, 15)
+
+! Other declaration
+    real, dimension (:) :: sum(F_chm_ni)
+    real, parameter :: tolerance = 0.01
+    logical local_dbg
+
+! Loop variables
+    integer :: i, j
+
+   local_dbg = (.false. .or. global_debug)
+
+   if(local_dbg) then
+      write (chm_lun_out, *) 'Remapping of 26 landuse types to 15 landuse categories'
+   end if
+
+   do i = 1, F_chm_ni
+      landuse_out(i,  1) = landuse_in(i,  4)
+      landuse_out(i,  2) = landuse_in(i,  5) + landuse_in(i,  8)
+      landuse_out(i,  3) = landuse_in(i,  6)
+      landuse_out(i,  4) = landuse_in(i,  7) + landuse_in(i,  9)
+      landuse_out(i,  5) = landuse_in(i, 25) + landuse_in(i, 26)
+      landuse_out(i,  6) = landuse_in(i, 13) + landuse_in(i, 14)
+      landuse_out(i,  7) = landuse_in(i, 15) + landuse_in(i, 16) + landuse_in(i, 17) + &
+                           landuse_in(i, 18) + landuse_in(i, 19) + landuse_in(i, 20)
+      landuse_out(i,  8) = landuse_in(i, 24)
+      landuse_out(i,  9) = landuse_in(i, 22)
+      landuse_out(i, 10) = landuse_in(i, 10) + landuse_in(i, 11) + landuse_in(i, 12)
+      landuse_out(i, 11) = landuse_in(i, 23)
+      landuse_out(i, 12) = landuse_in(i,  2)
+      landuse_out(i, 13) = landuse_in(i,  3)
+      landuse_out(i, 14) = landuse_in(i,  1)
+      landuse_out(i, 15) = landuse_in(i, 21)
+   end do
+
+! Look if the summation of the 15 landuse_out types equal 1.
+   sum = 0.0
+   do j = 1, 15
+      do i = 1, F_chm_ni
+         sum(i) = sum(i) + landuse_out(i, j)
+      end do
+   end do
+   if(local_dbg) then
+      write (chm_lun_out, *) 'Land use sum', sum
+   end if
+
+   do i = 1, F_chm_ni
+      if ( abs(1.0 - sum(i)) > tolerance ) then
+         write(0, *) '### Error in mach_landuse ###'
+         write(0, *) '# Summation of vegetation fractions over all landuse is not equal to 1 ', sum(i)
+         write(0, *) '###         ABORT         ###'
+         call chm_stop('mach_landuse', -1)
+      end if
+   end do
+
+end subroutine mach_landuse

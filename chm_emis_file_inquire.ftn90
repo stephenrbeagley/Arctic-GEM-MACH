@@ -1,0 +1,95 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_emis_file_inquire.ftn90
+! Creation       : A. Kallaur, H. Landry, S. Menard - Novembre 2006
+! Description    : Attempt to open surface emissions BMF file.
+!                  If successful, then
+!
+! Extra info     :
+!
+! Arguments: IN
+!              prefix  --> Prefix of bmf or fst filename
+!              bmf_fst --> Char string determining whether file is BMF or FST
+!
+!            OUT
+!              pe_file --> bmf input file
+!
+!==============================================================================
+logical function chm_emis_file_inquire(PE_FILE, prefix, bmf_fst)
+   use chm_utils_mod
+   use chm_datime_mod
+   use chm_ptopo_grid_mod
+   use chm_headers_mod, only: chm_fst_splitname
+   implicit none
+
+! Argument
+   character(len = *), intent(in) ::  prefix
+   character(len = *), intent(in) ::  bmf_fst
+   character(len = *), intent(out)::  pe_file
+
+! Local variables
+
+   character(len = FILENAME_LEN) tmp_pe_file
+   integer                       hour, minute, second
+   integer                       tmp_dt
+   logical                       lexist
+   logical                       local_dbg
+
+#include "path.cdk"
+
+   local_dbg = (.false. .or. global_debug)
+
+   tmp_dt      = chm_bmf_tim / 100
+   second      = mod(tmp_dt, 100)
+   tmp_dt      = tmp_dt / 100
+   minute      = mod(tmp_dt, 100)
+   tmp_dt      = tmp_dt / 100
+   hour        = mod(tmp_dt, 100)
+   tmp_dt      = tmp_dt / 100
+
+   chm_emis_file_inquire = .false.
+
+   select case (bmf_fst)
+   case ('BMF')
+      call bmf_splitname (TMP_PE_FILE, c_ptopo_mycol, c_ptopo_myrow, &
+                       trim(Path_input_S)//'/emissions_bmf', prefix,                   &
+                          chm_bmf_dat, hour, minute, second)
+   case ('FST')
+      call chm_fst_splitname(TMP_PE_FILE, c_ptopo_mycol, c_ptopo_myrow, &
+                       trim(Path_input_S)//'/emissions_fst', prefix,                 &
+                          chm_bmf_dat, hour, minute, second)
+   case default
+      write(0, *) '### Error in chm_emis_file_inquire ###'
+      write(0, *) '# chm_emis_file_inquire: UNKNOWN file output type :', bmf_fst
+      write(0, *) '# MUST be either BMF or FST'
+      write(0, *) '###              ABORT             ###'
+      call chm_stop('chm_emis_file_inquire', -1)
+   end select
+   if(local_dbg) then
+      write(chm_lun_out, *) 'Looking for ', bmf_fst, ' file :', tmp_pe_file
+   end if
+   inquire(file = tmp_pe_file, exist = lexist)
+   if (.not. lexist) then
+      chm_emis_file_inquire = .false.
+      if(local_dbg) then
+         write(chm_lun_out, *) '> No such file found or file empty: assuming no new emissions for this timestep'
+      end if
+   else
+      if(local_dbg) then
+         write(chm_lun_out, *) 'Found file: ', tmp_pe_file
+      end if
+      pe_file               = tmp_pe_file
+      chm_emis_file_inquire = .true.
+   endif
+
+   return
+end function chm_emis_file_inquire

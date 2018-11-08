@@ -1,0 +1,74 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_inctphychm.ftn90
+! Creation       : A. Kallaur, H. Landry, S. Menard - Decembre 2006
+! Description    : This function behaves in a similar way to its original
+!                  RPN-Physics function called inctphy3. The exception here
+!                  is that chemical constants have been added to the list
+!                  to be defined, and the values are off-loaded to the common
+!                  deck CHM_CTESPHY in file chm_consphychm.cdk.
+!                  A WORD OF CAUTION: In the original physics version , if
+!                                     the file "constantes" is not present
+!                                     in the exec directory, then the "operational"
+!                                     version is taken, which DOES NOT HAVE ANY CHEMICAL
+!                                    CONSTANTS DEFINED.
+! Extra info     :
+!
+! Arguments:
+!            IN
+!              call_back --> logical function call_back(real val(nbre),      &
+!                                                      character*(*) liste, &
+!                                                      integer nbre,        &
+!                                                      integer unout )
+!              unout     --> output unit
+!
+!==============================================================================
+
+logical function chm_inctphychm (call_back)
+   use chm_utils_mod
+   use chm_consphychm_mod
+   implicit none
+
+   logical  call_back
+   external call_back
+
+!parametres
+!     nbre - nombre de constantes dans le fichier
+!
+   integer, parameter :: nbre = 41
+
+   character(len = 10), dimension(nbre) :: nom1 = (/                          &
+                     'CPD       ' , 'CPV       ', 'RGASD     ', 'RGASV     ', 'TRPL      ', &
+                     'TCDK      ' , 'RAUW      ', 'EPS1      ', 'EPS2      ', 'DELTA     ', &
+                     'CAPPA     ' , 'TGL       ', 'CONSOL    ', 'GRAV      ', 'RAYT      ', &
+                     'STEFAN    ' , 'PI        ', 'OMEGA     ', 'KNAMS     ', 'STLO      ', &
+                     'KARMAN    ' , 'RIC       ', 'CHLC      ', 'CHLF      ', 'T1S       ', &
+                     'T2S       ' , 'AW        ', 'BW        ', 'AI        ', 'BI        ', &
+                     'SLP       ' , 'AVNO      ', 'KBOLTZ    ', 'RGM       ', 'RG        ', &
+                     'GASK      ' , 'RGASI     ', 'MWT_AIR   ', 'RHO_H2O   ', 'CONSTH    ',&
+                     'CONVA     ' /)
+
+! *
+! *----------------------------------------------------------------------
+! *
+   integer flag
+
+   chm_inctphychm = call_back (cpd, nom1, nbre, chm_lun_out)
+! *
+! *     Donner a la constante "karman" la valeur 0.40
+! *     ---------------------------------------------
+! *
+   call constnt(0.40  , flag, 'KARMAN', 3)
+   call constnt(karman, flag, 'KARMAN', 0)
+
+   return
+end

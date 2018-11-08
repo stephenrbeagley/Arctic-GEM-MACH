@@ -1,0 +1,120 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_buses.ftn90
+! Creation       : H. Landry, Mai 2008
+! Description    : Modules definingbuses and their attributes
+!
+! Extra info     :
+!
+!============================================================================
+
+module chm_buses_mod
+use chm_utils_mod
+!
+!================================================================================
+!          contains "CHARACTER" type variables pertaining to the 3 buses
+!
+! chmentdc        : description of the variables included in the entry     bus
+! chmdyndc        : description of the variables included in the dynamics  bus
+! chmperdc        : description of the variables included in the permanent bus
+! chmvoldc        : description of the variables included in the volatile  bus
+! chmentnm    (1) : variable name (16 characters long) for the entry     bus
+!             (2) : output     "  (4      "       "  )  "   "     "       "
+! chmdynnm    (1) : variable name (16 characters long) for the dynamics  bus
+!             (2) : output     "  (4      "       "  )  "   "     "       "
+! chmpernm    (1) : variable name (16 characters long) for the permanent bus
+!             (2) : output     "  (4      "       "  )  "   "     "       "
+! chmvolnm    (1) : variable name (16 characters long) for the volatile  bus
+!             (2) : output     "  (4      "       "  )  "   "     "       "
+!
+!COMMON BLOCK /CHM_BUSESL/
+!          contains "LOGICAL" type variables pertaining to the 3 buses
+!
+! chmbuslck   .TRUE.  : the physics setup is complete and the structure of
+!                       the buses can no longer be modified
+!             .FALSE. : the physics setup is not yet complete and the
+!                       structure of the buses can still be modified
+!                       (set in CHMDEBU)
+!
+!COMMON BLOCK /CHM_BUSESI/
+!           contains "INTEGER" type variables pertaining to the 3 buses
+!
+! chmentpar (1) : beginning of each field within the entry    bus
+!           (2) : length    "   "     "      "    "     "      "
+!           (3) : 0 if the field needs not be initialized by the dynamics
+!                 1 "   "    "   must  be initialized by the dynamics
+!           (4) : 0 if the field is NOT on a staggered vertical grid
+!               : 1 if the field is     on a staggered vertical grid
+!           (5) : length of each field divided by multiplicity factor
+!                 (either ni or ni*nk)
+!           (6) : multiplicity factor
+!           (7) : number of levels (1 or nk)
+!
+! chmdynpar (1) : beginning of each field within the dynamics bus
+!           (2) : length    "   "     "      "    "     "      "
+!           (3) : 0 if the field needs not be initialized by the dynamics
+!                 1 "   "    "   must  be initialized by the dynamics
+!           (4) : 0 if the field is NOT on a staggered vertical grid
+!               : 1 if the field is     on a staggered vertical grid
+!           (5) : length of each field divided by multiplicity factor
+!                 (either ni or ni*nk)
+!           (6) : multiplicity factor
+!           (7) : number of levels (1 or nk)
+!
+! chmperpar (1) : beginning of each field within the permanent bus
+!           (2) : length    "   "     "      "    "     "      "
+!           (3) : 0 if the field needs not be initialized by the dynamics
+!                 1 "   "    "   must  be initialized by the dynamics
+!           (4) : 0 if the field is NOT on a staggered vertical grid
+!               : 1 if the field is     on a staggered vertical grid
+!           (5) : length of each field divided by multiplicity factor
+!                 (either ni or ni*nk)
+!           (6) : multiplicity factor
+!           (7) : number of levels (1 or nk)
+!
+! chmvolpar (1) : beginning of each field within the volatile  bus
+!           (2) : length    "   "     "      "    "     "      "
+!           (3) : 0 if the field needs not be initialized by the dynamics
+!                 1 "   "    "   must  be initialized by the dynamics
+!           (4) : 0 if the field is NOT on a staggered vertical grid
+!               : 1 if the field is     on a staggered vertical grid
+!           (5) : length of each field divided by multiplicity factor
+!                 (either ni or ni*nk)
+!           (6) : multiplicity factor
+!           (7) : number of levels (1 or nk)
+!
+! chmenttop    number of variables within the entry     bus
+! chmdyntop    number of variables within the dynamics  bus
+! chmpertop    number of variables within the permanent bus
+! chmvoltop    number of variables within the volatile  bus
+! chmentspc    total length of the entry     bus
+! chmdynspc    total length of the dynamics  bus
+! chmperspc    total length of the permanent bus
+! chmvolspc    total length of the volatile  bus
+!
+!=============================================================================================
+
+   save
+
+   integer, parameter :: chmmaxbus = 1000
+
+   character(len = NMLKEY_LEN)  chmentnm(chmmaxbus, 2), chmdynnm(chmmaxbus, 2),  &
+                                chmpernm(chmmaxbus, 2), chmvolnm(chmmaxbus, 2)
+   character(len = VARDESC_LEN) chmentdc(chmmaxbus), chmdyndc(chmmaxbus),  &
+                                chmperdc(chmmaxbus), chmvoldc(chmmaxbus)
+   integer chmentpar(chmmaxbus, 7), chmdynpar(chmmaxbus, 7),  &
+           chmperpar(chmmaxbus, 7), chmvolpar(chmmaxbus, 7)
+   integer chmenttop, chmdyntop, chmpertop, chmvoltop,  &
+           chmentspc, chmdynspc, chmperspc, chmvolspc
+   logical chmbuslck
+
+end module chm_buses_mod

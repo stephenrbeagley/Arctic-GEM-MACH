@@ -1,0 +1,691 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_pm_chem.ftn90
+! Creation       : P. Huang, W. Gong, Mar. 2008 for adapting AURAMS version CAM
+!                  P. Huang, Dec. 2007 for GEM-MACH
+!
+! Description    : Entry point for aerosol processes
+!
+! Extra info     : Including calculations of Sea-salt surface flux
+!
+! Arguments:  IN
+!               nu             -> Total cloud fraction at each layer (0.0-1.0)
+!               gz_chm         -> Interface height above sea-level
+!               gz_k           -> Mid-layer height above sea level
+!               qc             -> Cloud water/ice (kg/kg) air
+!               p2d            -> Pressure (Pa)
+!               tt             -> Temperature (K)
+!               hu             -> Specific humidity (kg H2O/kg air)
+!               rho            -> 3-D air density array (kg/m^3)
+!               cx             -> Cosine of solar zenith angle
+!               F_chm_ni       -> No. x-direction (W-E) gridpoints
+!               nk             -> No. z-direction vertical levels
+!               f_step         -> Flag for first chem. step in current
+!               f_j            -> Slice number
+!               f_cpu          -> Cpu number executing slice "f_j"
+!               frcld_ck       -> Deep convective cloud cover
+!               frcld_cs       -> Stratiform cloud cover
+!               psfc           -> Surface pressure (Pa)
+!               l_prc_flx      -> Liquid precipitation flux
+!               s_prc_flx      -> Solid precipitation flux
+!               ppro           -> CLOUD TO RAIN COLL TEND (CONSUN)
+!               pevp           -> EVAP. OF STRAT. PRECIP (CONSUN)
+!               sig            -> Local sigma values
+!               fws            -> Vertical velocity
+!               fland          -> Landuse
+!               pbltrow        -> First level in the PBL
+!               glsea          -> Sea ice fraction
+!               udiag          -> Screen level X-component of wind
+!               vdiag          -> Screen level Y-component of wind
+!               seasn          -> Seasonal categories for calculation of PM dry deposition
+!               ra             -> Aerodynamic resistance
+!               ustar_in       -> Surface friction velocity (m/s) taken from Phyvar(UE)
+!               f_chmbusvol    -> Volatile bus for chemistry
+!               uu, vv         -> Wind components
+!               l_kfc_flx      -> liquid precip flux from kfc (not in l_prc_flx)
+!               s_kfc_flx      -> solid precip flux from kfc (not in s_prc_flx)
+!               ppro_kfc       -> rain  water/snow tend. due to KFC
+
+!
+!             IN/OUT
+!               F_CHMBUSDYN    -> Dynamic bus for chemistry
+!               wd_HSO3        -> Wet deposition of HSO3-
+!               wd_HPXA        -> Wet deposition of H2O2 (hydrogen peroxide)
+!               wd_RPXA        -> Wet deposition of ROOH (organic peroxide)
+!               wd_SO4         -> Wet deposition of SO4(=)
+!               wd_NO3         -> Wet deposition of NO3(-)
+!               wd_NH4         -> Wet deposition of NH4(+)
+!               wd_CAT         -> Wet deposition of base cations
+!               wd_HCO3        -> Wet deposition of HCO3(-)
+!               wd_H           -> Wet deposition of H(+)
+!               wd_SSLT        -> Wet deposition of sea-salt
+!               wd_OCBN        -> Wet deposition of secondary organic carbon
+!               wd_H2O         -> Wet deposition of aerosol water
+!               wd_DUST        -> Wet deposition of crustal material
+!               wd_BLC         -> Wet deposition of black carbon
+!               wd_PCBN        -> Wet deposition of primary organic carbon
+!               dd_PSO4        -> Dry deposition of particle sulphate
+!               dd_PSS         -> Dry deposition of particle sea-salt
+!               dd_POC         -> Dry deposition of particle secondary organic carbon
+!               dd_PNO3        -> Dry deposition of particle nitrate
+!               dd_PNH4        -> Dry deposition of particle ammonium
+!               dd_PCM         -> Dry deposition of particle crustal material
+!               dd_PEC         -> Dry deposition of particle elemental carbon
+!               dd_PPC         -> Dry deposition of particle primary organic carbon
+!wg - adding precip production and precip fluxes due to kfc
+!                l_kfc_flx      -> liquid precip flux from kfc (not in l_prc_flx)
+!                s_kfc_flx      -> solid precip flux from kfc (not in s_prc_flx)
+!                ppro_kfc       -> rain  water/snow tend. due to KFC
+!
+!
+!============================================================================
+
+subroutine mach_pm_chem(F_CHMBUSDYN, f_chmbusvol, nu, gz_chm, gz_k, qc, p2d, tt, hu,   &
+                        rho, cx, f_chm_ni, nk, luc, f_step, f_j, f_cpu, frcld_ck, frcld_cs, &
+                        psfc, l_prc_flx, s_prc_flx, ppro_kfc, l_kfc_flx, s_kfc_flx,    &
+                        ppro, pevp, sig, fws, fland,       &
+                        pbltrow, glsea, udiag, vdiag, seasn, ra, ustar_in, oldso4,     &
+                        uu, vv, wd_hso3, wd_hpxa, wd_rpxa, wd_so4, wd_no3, wd_nh4,     &
+                        wd_cat, wd_hco3, wd_h, wd_sslt, wd_ocbn, wd_h2o, wd_dust,      &    
+                        wd_blc, wd_pcbn, dd_pso4, dd_poc, dd_pno3, dd_pnh4, dd_pcm,    &
+                        dd_pec, dd_ppc, dd_pss, &
+                        nc_out, trwtrow, thlevout, aeronum )
+
+   use mach_cam_headers_mod, only: mach_cam_pre, mach_cam_main, mach_cam_sfss
+   use chm_utils_mod
+   use chm_consphychm_mod
+   use chm_nml_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use chm_datime_mod
+   use chm_ptopo_grid_mod
+   use mach_gas_chemicbi_mod
+   use mach_cam_pre_mod
+   use mach_cam_utils_mod
+   implicit none
+
+#include "dintern.cdk"
+#include "fintern.cdk"
+
+!  Arguments
+   real, dimension(*), intent(inout)  :: f_chmbusdyn
+   real, dimension(*), intent(in)     :: f_chmbusvol
+   integer, intent(in)  :: f_chm_ni, nk, f_step, luc
+   integer, intent(in)  :: f_j, f_cpu
+   real, intent(in)  :: nu(f_chm_ni, nk), gz_chm(f_chm_ni, nk), gz_k(f_chm_ni, nk), qc(f_chm_ni, nk)
+   real, intent(in)  :: hu(f_chm_ni, nk), tt(f_chm_ni, nk), p2d(f_chm_ni, nk), rho(f_chm_ni, nk), cx(f_chm_ni)
+   real, intent(in)  :: uu(f_chm_ni, nk), vv(f_chm_ni, nk)
+   real, intent(in), dimension(f_chm_ni)     :: glsea, udiag, vdiag, psfc, seasn, ustar_in, pbltrow
+   real, intent(in), dimension(f_chm_ni, nk) :: frcld_ck, frcld_cs, ppro, pevp, l_prc_flx, s_prc_flx, sig, fws, oldso4
+!wg - adding kfc precip production and fluxes
+   real, intent(inout), dimension(f_chm_ni, nk) :: ppro_kfc, l_kfc_flx, s_kfc_flx
+   real, intent(inout), dimension(f_chm_ni, nk) :: nc_out
+   real, intent(inout), dimension(f_chm_ni, nk, isize) :: trwtrow
+   real, intent(out), dimension(f_chm_ni, nk) :: thlevout
+   real, intent(in), dimension(f_chm_ni, luc) :: fland, ra
+   real, dimension(f_chm_ni, luc) :: usi    !usi  !usi is calculated locally
+!
+   real, dimension(f_chm_ni), intent(inout) :: wd_hso3, wd_hpxa, wd_rpxa, wd_so4, wd_no3, wd_nh4
+   real, dimension(f_chm_ni), intent(inout) :: wd_cat, wd_hco3, wd_h, wd_sslt, wd_ocbn, wd_h2o, wd_dust
+   real, dimension(f_chm_ni), intent(inout) :: wd_blc, wd_pcbn 
+   real, dimension(f_chm_ni), intent(inout) :: dd_pso4, dd_pss, dd_poc, dd_pno3, dd_pnh4, dd_pcm
+   real, dimension(f_chm_ni), intent(inout) :: dd_pec, dd_ppc
+   real, dimension(f_chm_ni, nk, isize), intent(out) :: aeronum
+
+!  declare other variables
+   integer, parameter :: nswdep = 15     ! number of species in wet dep flux output
+   integer, parameter :: nsub = 32
+   integer :: n, l, isz, lon, icam, irest, il1, il2, msg, nn, i, k
+   integer :: gn_aerochem, idd, iti, jdd, mae
+   integer :: hetselec                   ! = 0 for isorropia, =1 for hetv, = -1 for 'nil'
+   real    :: pop, pop1, tmin
+   real    :: smf
+   real, dimension(f_chm_ni)           :: surfwd
+   real, dimension(f_chm_ni, nk)       :: tcld3, qr3, fctr, frevp, roarow, shj, dshj, wrscav, zfprec, wpevpa, wrow, ohrow
+   real, dimension(f_chm_ni, nk)       :: oldtop, oldbot
+   real, dimension(f_chm_ni, nk)       :: no3row, thlev, rtdms, rth2s, rtnucl, soa, press3d, pso4
+   real, dimension(f_chm_ni, nk+1)     :: shtj, throw, rhrow, qrow
+   real, dimension(f_chm_ni, nk, 2)    :: pretrow, cldcv, zmlwc, rtso2
+   real, dimension(f_chm_ni, nswdep)   :: wetflx
+   real, dimension(f_chm_ni, nk, 3, 2) :: ts2, ts4
+   real, dimension(f_chm_ni, 4, 2)     :: clts, cls4
+   real, dimension(15) :: condnu
+   real, parameter :: rso2oh2so4 = -64.6 / 98.1
+   real, dimension(f_chm_ni, nk, 7)    :: cld_chm
+   real, dimension(f_chm_ni)           :: tcszrow, cszrow    !variables passed but not be used in cam
+   logical :: local_dbg
+  
+!   real :: befcam
+
+! A bit down bellow, gn_aerochem = isize * icom + maxngs + extra + camextr
+   real,    dimension(:, :)       :: aerosize1(2, isize)
+   integer, dimension(:)          :: igf      (isize)
+   real,    dimension(:)          :: pvol     (isize)
+   integer, dimension(:, :)       :: iaer_sp  (icom, isize)
+   integer, dimension(:, :, :)    :: igfij    (isize, isize * isize, 2)
+   real,    dimension(:, :, :)    :: coagfr   (isize, isize, isize)
+   real,    dimension(:, :)       :: dryflx   (f_chm_ni, icom)
+   real,    dimension(:, :, :)    :: fintrow  (f_chm_ni, isize, 3)
+   real,    dimension(:, :)       :: rsfrow   (f_chm_ni, isize * icom + maxngs + extra + camextr)
+   real,    dimension(:, :, :)    :: rtcond   (f_chm_ni, nk, isize)
+   real,    dimension(:, :, :)    :: rtso4    (f_chm_ni, nk, isize)
+   real,    dimension(:, :, :)    :: beta_coag(f_chm_ni, nk, isize * isize)
+   real,    dimension(:, :, :)    :: tracg    (f_chm_ni, nk, isize * icom + maxngs + extra + camextr)
+   real,    dimension(:, :, :)    :: rtcoa    (f_chm_ni, nk, isize * icom + maxngs + extra + camextr)
+   real,    dimension(:, :, :)    :: rtdry    (f_chm_ni, nk, isize * icom + maxngs + extra + camextr)
+   real,    dimension(:, :, :)    :: rticld   (f_chm_ni, nk, isize * icom + maxngs + extra + camextr)
+   real,    dimension(:, :, :)    :: rtbcld   (f_chm_ni, nk, isize * icom + maxngs + extra + camextr)
+   real,    dimension(:, :, :)    :: ttcond   (f_chm_ni, nk, isize * icom + maxngs + extra + camextr)
+   real,    dimension(:, :, :)    :: aero_tr  (f_chm_ni, nk + 1, isize * icom + maxngs + extra + camextr)
+
+!
+   real :: oldnumhrs, oldnumhrsint,aa
+   integer :: sp_index
+
+   smf = 1.0e-15
+
+   aero_tr     = 1.0e-33
+   aerosize1   = 0.0
+   beta_coag   = 0.0
+   cld_chm     = 0.0
+   cldcv       = 0.0
+   cls4        = 0.0
+   clts        = 0.0
+   coagfr      = 0.0
+   condnu      = 0.0
+   cszrow      = 0.0
+   dryflx      = 0.0
+   dshj        = 0.0
+   fctr        = 0.0
+   fintrow     = 0.0
+   frevp       = 0.0
+   iaer_sp     = 0.0
+   igf         = 0.0
+   igfij       = 0.0
+   no3row      = 0.0
+   ohrow       = 0.0
+   pop         = 0.0
+   pop1        = 0.0
+   press3d     = 0.0
+   pretrow     = 0.0
+   pso4        = 0.0
+   pvol        = 0.0
+   qr3         = 0.0
+   qrow        = 0.0
+   rhrow       = 0.0
+   roarow      = 0.0
+   rsfrow      = 0.0
+   rtbcld      = 0.0
+   rtcoa       = 0.0
+   rtcond      = 0.0
+   rtdms       = 0.0
+   rtdry       = 0.0
+   rth2s       = 0.0
+   rticld      = 0.0
+   rtnucl      = 0.0
+   rtso2       = 0.0
+   rtso4       = 0.0
+   shj         = 0.0
+   shtj        = 0.0
+   soa         = 0.0
+   surfwd      = 0.0
+   tcld3       = 0.0
+   tcszrow     = 0.0
+   thlev       = 0.0
+   throw       = 0.0
+   tmin        = 0.0
+   tracg       = 0.0
+   trwtrow     = 0.0
+   ts2         = 0.0
+   ts4         = 0.0
+   ttcond      = 0.0
+   wetflx      = 0.0
+   wpevpa      = 0.0
+   wrow        = 0.0
+   wrscav      = 0.0
+   zfprec      = 0.0
+   zmlwc       = 0.0
+
+   gn_aerochem = isize * icom + maxngs + extra + camextr
+
+   do i = 1, f_chm_ni
+      do l = 1, luc
+         usi(i, l) = max(ustar_in(i), 0.0)
+      end do
+   end do
+
+   local_dbg = (.false. .or. global_debug)
+
+   call mach_cam_pre(AEROSIZE1, PVOL, IGF, IGFIJ, COAGFR, IAER_SP, icom, isize, gn_aerochem, nk)
+
+   call sigmacal(SHJ, SHTJ, DSHJ, 1, sig, F_chm_ni, nk)
+
+!  for heterogeneous chemistry
+!  keep using 'hetselec' as a key to avoid change in AURAMS version CAM
+!  added hetselec = -1 to turn off call hetchem( ) in mach_cam_aerocld
+   select case (chm_hetchem_s)
+      case ('HETV')
+            hetselec = 1         ! hetselec = 1 for hetv
+      case ('ISO')
+            hetselec = 0         ! hetselec = 0 for isorropia
+      case ('NIL')
+            hetselec = -1        ! hetselec = -1 for 'nil'
+      case default
+   end select
+
+   delt   = 0.5 * chm_timestep
+   msg    = 0
+   il1    = 1
+   il2    = f_chm_ni
+   lon    = f_chm_ni / 2
+   idd    = id
+   jdd    = jd
+   iti    = it
+   mae    = 0
+
+   if (local_dbg .and. f_j == 1) then       !to print details of PM name and size bin structure
+         write (chm_lun_out, *) 'cam -> idd, jdd, iti, cam, idebug, dlev, isize, icob, iat, mae, local_dbg'
+         write (chm_lun_out, 333)  idd, jdd, iti, int(cam), idebug, dlev, isize, icob, icom, mae, local_dbg
+         write (chm_lun_out, 1111) (aeroname(n), n = 1, icom)
+         write (chm_lun_out, 2222) (rhop0(n), n = 1, icom)
+         write (chm_lun_out, *) '       cam size bin configurations '
+         do n = 1, isize
+            write (chm_lun_out, *) aerosize1(1, n), '   ', aerosize1(2, n)
+         end do
+   end if
+ 1111 format (' aerosol type(s) -> ', 8('| ', a8, ' |', 1x))
+ 2222 format ('     density(kg/m3) ', 9('  ', f8.2, '  ', 1x))
+ 333  format (8x, i3, 1x, i3, 1x, i3, 1x, i3, 2x, i3, 3x, i4, 1x, i4, 1x, i4, 1x, i3, 1x, i3, 4x, i3)
+
+!  load from chmbusdyn
+   do k = 1, nk
+      do i = 1, F_chm_ni
+         aero_tr(i, k+1, igs_SO2)   = f_chmbusdyn(sm(sp_SO2 ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')  !ug/kg -> kg/kg
+!        aero_tr(i, k+1, igs_SO4)   = f_chmbusdyn(sm(sp_SO4  ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_SO4)   = oldso4(i, k) * unitcnvr('ug2kg')                                      !using [SO4]g before gas chemistry for use in CAM
+         aero_tr(i, k+1, igs_NO)    = f_chmbusdyn(sm(sp_NO  ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_NO2)   = f_chmbusdyn(sm(sp_NO2) % dyn_offset + ik(i, k))  * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_O3)    = f_chmbusdyn(sm(sp_O3) % dyn_offset + ik(i, k))   * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_H2O2)  = f_chmbusdyn(sm(sp_H2O2 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_HNO3)  = f_chmbusdyn(sm(sp_HNO3 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+
+         aero_tr(i, k+1, igs_PAN)   = f_chmbusdyn(sm(sp_PAN ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_C3H8)  = f_chmbusdyn(sm(sp_C3H8 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_ALKA)  = f_chmbusdyn(sm(sp_ALKA ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_ETHE)  = f_chmbusdyn(sm(sp_ETHE ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_ALKE)  = f_chmbusdyn(sm(sp_ALKE ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_TOLU)  = f_chmbusdyn(sm(sp_TOLU ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_AROM)  = f_chmbusdyn(sm(sp_AROM ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_HCHO)  = f_chmbusdyn(sm(sp_HCHO ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_ALD2)  = f_chmbusdyn(sm(sp_ALD2 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_MEK)   = f_chmbusdyn(sm(sp_MEK ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+
+         aero_tr(i, k+1, igs_MGLY)  = f_chmbusdyn(sm(sp_MGLY ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_DIAL)  = f_chmbusdyn(sm(sp_DIAL ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_ROOH)  = f_chmbusdyn(sm(sp_ROOH ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_CRES)  = f_chmbusdyn(sm(sp_CRES ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_HONO)  = f_chmbusdyn(sm(sp_HONO ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_RNO3)  = f_chmbusdyn(sm(sp_RNO3 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_ISOP)  = f_chmbusdyn(sm(sp_ISOP ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_HO2)   = f_chmbusdyn(sm(sp_HO2 ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_RO2)   = f_chmbusdyn(sm(sp_RO2 ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_MCO3)  = f_chmbusdyn(sm(sp_MCO3 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+
+         aero_tr(i, k+1, igs_CO)    = f_chmbusdyn(sm(sp_CO ) % dyn_offset + ik(i, k))  * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_NH3)   = f_chmbusdyn(sm(sp_NH3 ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_DUST)  = 1.E-23 !f_chmbusdyn(sm(sp_DUST ) % dyn_offset + ik(i, k))         !this species is deleted in gem-mach
+         aero_tr(i, k+1, igs_OSD)   = f_chmbusdyn(sm(sp_OSD ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_O)     = f_chmbusdyn(sm(sp_O ) % dyn_offset + ik(i, k))   * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_NO3)   = f_chmbusdyn(sm(sp_NO3 ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_N2O5)  = f_chmbusdyn(sm(sp_N2O5 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_HNO4)  = f_chmbusdyn(sm(sp_HNO4 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_OH)    = f_chmbusdyn(sm(sp_OH ) % dyn_offset + ik(i, k))  * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_RO2R)  = f_chmbusdyn(sm(sp_RO2R ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+
+         aero_tr(i, k+1, igs_R2O2)  = f_chmbusdyn(sm(sp_R2O2 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_RO2N)  = f_chmbusdyn(sm(sp_RO2N ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_BZO)   = f_chmbusdyn(sm(sp_BZO ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_CRG1)  = f_chmbusdyn(sm(sp_CRG1 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_CRG2)  = f_chmbusdyn(sm(sp_CRG2 ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')
+         aero_tr(i, k+1, igs_CH4)   = 1.E-12 !ch4(k)  ! see gas_chem.
+         aero_tr(i, k+1, igs_C2H6)  = 1.E-12 !c2h6(k) ! see gas_chem.
+         aero_tr(i, k+1, igs_H2O)   = 1.E-13 !f_chmbusdyn(sm(sp_H2O ) % dyn_offset + ik(i, k))* unitcnvr('ug2kg')  !GEM-MACH dosen't have this index
+         aero_tr(i, k+1, igs_O2)    = 1.E-13 !f_chmbusdyn(sm(sp_O2 ) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')  !GEM-MACH dosen't have this index
+         aero_tr(i, k+1, igs_M)     = 1.E-13 !f_chmbusdyn(sm(sp_M ) % dyn_offset + ik(i, k))  * unitcnvr('ug2kg')  !GEM-MACH dosen't have this index
+         SOA(i, k) = f_chmbusvol(sm(sp_NWOC) % vol_offset + ik(i, k)) * unitcnvr('ug2kg')/chm_timestep             !ug/kg->kg/kg/s
+            do isz=1, isize
+               aero_tr(i, k+1, iaer_sp(iae_SU, isz)) = f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')  !ug/kg -> kg/kg
+               aero_tr(i, k+1, iaer_sp(iae_SS, isz)) = f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+               aero_tr(i, k+1, iaer_sp(iae_OC, isz)) = f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+               aero_tr(i, k+1, iaer_sp(iae_NI, isz)) = f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+               aero_tr(i, k+1, iaer_sp(iae_AM, isz)) = f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+               aero_tr(i, k+1, iaer_sp(iae_SD, isz)) = f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+               aero_tr(i, k+1, iaer_sp(iae_EC, isz)) = f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+               aero_tr(i, k+1, iaer_sp(iae_PC, isz)) = f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k)) * unitcnvr('ug2kg')
+         end do
+      end do
+   end do
+
+!  This part from AURAMS ctm.ftn90:
+!  Calculate the average production rate of SO4 for use in CAM
+!  in ug/kg/s converted to SO2 oxidation rate in kg of so2/kg/s for CAM
+
+   do k = 1, nk
+      do i = 1, f_chm_ni
+         pso4(i, k) = (f_chmbusdyn(sm(sp_SO4  ) % dyn_offset + ik(i, k)) - oldso4(i, k)) / delt * rso2oh2so4 * unitcnvr('ug2kg')
+      end do
+   end do
+
+   icam  = ncam
+   irest = 1
+
+   do i = 1, f_chm_ni
+      surfwd(i) = sqrt(udiag(i)**2 + vdiag(i)**2)
+   end do
+! filling nk level of kfc fluxes with level nk-1 values (nk level is not
+! computed in physics) - see similar treatment for rnflx and snflx in phy_exe
+   do i = 1, f_chm_ni
+      l_kfc_flx(i, nk) = l_kfc_flx(i, nk-1)
+      s_kfc_flx(i, nk) = s_kfc_flx(i, nk-1)
+      ppro_kfc(i, nk) = 0.0
+! Ditto cloud droplet number
+      nc_out(i,nk) = nc_out(i,nk-1)
+   end do
+
+
+   do k=1, nk
+      do i=1, F_chm_ni
+         rtso2(i, k, 1)   = pso4(i, k)
+         thlev(i, k)      = dshj(i, k) * psfc(i) / grav/rho(i, k)
+         thlevout(i,k)    = thlev(i,k)
+         qr3(i, k)        = l_prc_flx(i, k) + s_prc_flx(i, k) &
+                          + l_kfc_flx(i, k) + s_kfc_flx(i, k)
+
+         roarow(i, k)     = rho(i, k)
+         pretrow(i, k, 1) = l_prc_flx(i, k) + l_kfc_flx(i, k)
+         pretrow(i, k, 2) = s_prc_flx(i, k) + s_kfc_flx(i, k)
+
+         throw(i, k+1)    = tt(i, k)
+         qrow(i, k+1)     = hu(i, k)
+         wrscav(i, k)     = max((ppro(i, k)+ppro_kfc(i, k)), 0.0)
+
+         zfprec(i, k)     = qr3(i, k) / thlev(i, k)
+         wpevpa(i, k)     = pevp(i, k) * zfprec(i, k)
+         frevp(i, k)      = min(1.0, &
+                  max(0.0, pevp(i, k) * l_prc_flx(i, k) / (pretrow(i, k, 1) + smf)))
+
+         fctr(i, k)       = max(0.0, min(1.0, &
+                  max((ppro(i, k) + ppro_kfc(i, k)), 0.0) / (qc(i, k) + smf)))
+
+         if (l_prc_flx(i, k) < 0.0) then
+            frevp(i, k) = 0.0
+         end if
+         rhrow(i, k + 1)    = fohra(hu(i, k), tt(i, k), psfc(i)*sig(i, k))
+         rhrow(i, k + 1)    = min(max(rhrow(i, k + 1),0.0), 1.0)
+
+         ohrow(i, k)      = aero_tr(i, k+1, igs_oh)  * rho(i, k) / (sm(sp_OH ) % mol_wt * 1.E-3) * rgasi * tt(i, k) / p2d(i, k)  !gas unit in m**3/m**3
+         no3row(i, k)     = aero_tr(i, k+1, igs_no3) * rho(i, k) / (sm(sp_NO3) % mol_wt * 1.E-3) * rgasi * tt(i, k) / p2d(i, k)  !gas unit in m**3/m**3
+         cldcv(i, k, 1)   = frcld_cs(i, k)
+         cldcv(i, k, 2)   = frcld_ck(i, k)
+         tcld3(i, k)      = nu(i, k)
+         zmlwc(i, k, 1)   = qc(i, k)        !strat.+conv. aurams needs this format
+         zmlwc(i, k, 2)   = 0.0
+         if (zmlwc(i, k, 1) < 1.e-7) then
+            zmlwc(i, k, 1) = 0.0
+            tcld3(i, k)    = 0.0
+         endif
+         wrow(i, k)     = fws(i, k)         !model vertical wind speed  ??
+         press3d(i, k)  = p2d(i, k)/100.    !pa -> mb
+      enddo
+   enddo
+!
+   do i = 1, F_chm_ni
+     oldbot(i,nk) = 0.0
+     oldtop(i,nk) = thlev(i,nk)
+   end do
+   do k = nk-1, 1, -1
+      do i = 1, F_chm_ni
+        oldbot(i,k) = oldtop(i,k+1)
+        oldtop(i,k) = oldbot(i,k) + thlev(i,k)
+      enddo
+   enddo
+!
+!  compute the condensation/nucleation time intervals
+   do i = 1, 15
+      pop1 = 2. * delt / exp(real(15 - i) / 1.7)
+      if (i >= 2) then
+         condnu(i) = pop1 - pop
+         pop = pop1
+      else
+         condnu(i) = pop1
+         pop = pop1
+      end if
+   end do
+   do n = 1, gn_aerochem
+      do k = 1, nk
+         do i = 1, F_chm_ni
+            tracg(i, k, n) = aero_tr(i, k + 1, n)
+         enddo
+      enddo
+   enddo
+
+!  call aerosol physics
+   call tmg_start0 ( 90, 'mach_cam_main')
+
+   call mach_cam_main(nk, nk + 1, F_chm_ni, IL1, IL2, f_j, THROW, RHROW, LON, aero_tr,    &
+                      psfc, SHJ, ITI, ITR, RSFROW, DLEV, WROW, IREST, TCSZROW,       &
+                      CSZROW, TRACG, gn_aerochem, icom, f_step, luc, AEROSIZE1,  &
+                      AERONAME, OHROW, NO3ROW, NSUB, IDD, CLDCV, ZMLWC,       &
+                      PRETROW, TRWTROW, ROAROW, RHOP0, RTCOA, RTICLD, RTBCLD, RTDRY,      &
+                      THLEV, DSHJ, JDD, igs_H2S, igs_DMS, igs_SO2, igs_SO4, IAE1, ICAM,   &
+                      igs_CCN, RTSO2, RTDMS, RTH2S, FLAND, RTNUCL, BETA_coag, WPEVPA,     &
+                      WRSCAV, COAGFR, PVOL, TMIN, nsn, pllp, aest, gamma, SOA, seasn, ra, &
+                      usi, IGF, CONDNU, IGFIJ, TTCOND, igs_H2O2, igs_ROOH, igs_HNO3,      &
+                      igs_NH3, igs_DUST, igs_O3, tcld3, cld_chm, fctr, frevp, wetflx,     &
+                      nswdep, ts2, ts4, clts, cls4, press3d, rho, hetselec, dryflx,       &
+                      chm_aqueous_s, pbltrow, uu, vv, shtj, zfprec, qrow, oldtop, oldbot, &
+                      nc_out, aeronum)
+  call tmg_stop0 ( 90 )
+
+   call chk_trc(aero_tr, 1, F_chm_ni, nk+1, IL1, IL2, gn_aerochem, IAE1, IAE2, f_j, 'aft_camV', f_step, 0)
+
+!  sea-salt surface flux
+
+   select case (chm_seaflux_s)
+      case ('GONG_MONAHAN')
+         if(local_dbg) then
+            write (chm_lun_out, *) 'Compute sea-salt surface flux by cam scheme: ', chm_seaflux_s
+         end if
+
+!  nprocess is the counter for various physical processes for the sea salt generation
+!  1. wave breaking; 2. bubble bursting; 3. space holder for fetch correction... not currently implemented
+!  integer, parameter :: nprocess = 3
+         do nn = 1, icom
+            if (aeroname(nn) == 'SEA-SALT') then
+               call chk_trc(aero_tr, 1, f_chm_ni, nk + 1, il1, il2, gn_aerochem, iae1, iae2, f_j, 'bfr_sfss', f_step, 0)
+
+   call tmg_start0 ( 91, 'mach_cam_sfss')
+
+               call mach_cam_sfss(aero_tr, dshj, f_chm_ni, nk+1, nk, i_ss,                &
+                                  throw, gn_aerochem, nn, icom, isize, luc, &
+                                  aerosize1, surfwd, rhop0, rsfrow, psfc, glsea,          &
+                                  fland, fintrow, il1, il2, iae1, irest,.false.)
+  call tmg_stop0 ( 91 )
+             end if
+         end do
+      case ('GONG_MONAHAN_F')
+         if(local_dbg) then
+            write (chm_lun_out, *) '> Warning '
+            write (chm_lun_out, *) '> sea-salt flux treated as emission : ', chm_seaflux_s
+         end if
+      case default
+         if(local_dbg) then
+            write (chm_lun_out, *) '> Warning '
+            write (chm_lun_out, *) '> No surafce flux scheme for sea-salt selected: ', chm_seaflux_s
+         end if
+   end select
+
+   do k = 1, nk
+      do i = 1, F_chm_ni
+         f_chmbusdyn(sm(sp_SO2  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_SO2) * unitcnvr('kg2ug')      !kg/kg -> ug/kg
+         f_chmbusdyn(sm(sp_SO4  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_SO4) * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_NO   ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_NO)  * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_NO2  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_NO2) * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_O3   ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_O3)  * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_H2O2 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_H2O2)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_HNO3 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_HNO3)* unitcnvr('kg2ug')
+
+         f_chmbusdyn(sm(sp_PAN  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_PAN) * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_C3H8 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_C3H8)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_ALKA ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_ALKA)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_ETHE ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_ETHE)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_ALKE ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_ALKE)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_TOLU ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_TOLU)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_AROM ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_AROM)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_HCHO ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_HCHO)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_ALD2 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_ALD2)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_MEK  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_MEK) * unitcnvr('kg2ug')
+
+         f_chmbusdyn(sm(sp_MGLY ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_MGLY)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_DIAL ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_DIAL)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_ROOH ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_ROOH)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_CRES ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_CRES)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_HONO ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_HONO)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_RNO3 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_RNO3)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_ISOP ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_ISOP)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_HO2  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_HO2) * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_RO2  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_RO2) * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_MCO3 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_MCO3)* unitcnvr('kg2ug')
+
+         f_chmbusdyn(sm(sp_CO   ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_CO)  * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_NH3  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_NH3) * unitcnvr('kg2ug')
+!        f_chmbusdyn(sm(sp_DUST ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_DUST)* unitcnvr('kg2ug')    !this species is deleted in gem-mach
+         f_chmbusdyn(sm(sp_OSD  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_OSD) * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_O    ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_O)   * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_NO3  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_NO3) * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_N2O5 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_N2O5)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_HNO4 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_HNO4)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_OH   ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_OH)  * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_RO2R ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_RO2R)* unitcnvr('kg2ug')
+
+         f_chmbusdyn(sm(sp_R2O2 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_R2O2)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_RO2N ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_RO2N)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_BZO  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_BZO) * unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_CRG1 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_CRG1)* unitcnvr('kg2ug')
+         f_chmbusdyn(sm(sp_CRG2 ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_CRG2)* unitcnvr('kg2ug')
+!        f_chmbusdyn(sm(sp_H2O  ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_H2O) * unitcnvr('kg2ug')    !GEM-MACH dosen't have this index
+!        f_chmbusdyn(sm(sp_O2   ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_O2)  * unitcnvr('kg2ug')    !GEM-MACH dosen't have this index
+!        f_chmbusdyn(sm(sp_M    ) % dyn_offset + ik(i, k)) = aero_tr(i,k+1,igs_M)   * unitcnvr('kg2ug')    !GEM-MACH dosen't have this index
+         do isz = 1, isize
+            f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) = aero_tr(i, k+1, iaer_sp(iae_SU, isz)) * unitcnvr('kg2ug')  !kg/kg -> ug/kg
+            f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) = aero_tr(i, k+1, iaer_sp(iae_SS, isz)) * unitcnvr('kg2ug')
+            f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) = aero_tr(i, k+1, iaer_sp(iae_OC, isz)) * unitcnvr('kg2ug')
+            f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) = aero_tr(i, k+1, iaer_sp(iae_NI, isz)) * unitcnvr('kg2ug')
+            f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) = aero_tr(i, k+1, iaer_sp(iae_AM, isz)) * unitcnvr('kg2ug')
+            f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) = aero_tr(i, k+1, iaer_sp(iae_SD, isz)) * unitcnvr('kg2ug')
+            f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) = aero_tr(i, k+1, iaer_sp(iae_EC, isz)) * unitcnvr('kg2ug')
+            f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k)) = aero_tr(i, k+1, iaer_sp(iae_PC, isz)) * unitcnvr('kg2ug')
+            f_chmbusdyn(sm(sp_WA) % bins_array(isz) % dyn_offset + ik(i, k)) = trwtrow(i, k, isz) * unitcnvr('kg2ug')
+         end do
+      end do
+   end do
+!
+!  Zero the wet deposition space in the permanent bus if necessary:
+! Note Chemistry does not happen at every time step of Physics
+      aa= (real(f_step-chm_step_factor)*chm_timestep)/real(chm_step_factor)
+      oldnumhrs = aa/real(secondsin1hour)
+      oldnumhrsint = real(int(oldnumhrs))
+!
+      if(f_step == 0 .or. (oldnumhrs == oldnumhrsint .and. f_step > chm_step_factor)) then
+
+!
+! Zero the wet deposition accumulator variables, if the previous step was an integer hour
+! (accumulation is hourly).
+     wd_HSO3(1:f_chm_ni) = 0.0
+     wd_HPXA(1:f_chm_ni) = 0.0
+     wd_RPXA(1:f_chm_ni) = 0.0
+     wd_SO4(1:f_chm_ni)  = 0.0
+     wd_NO3(1:f_chm_ni)  = 0.0
+     wd_NH4(1:f_chm_ni)  = 0.0
+     wd_CAT(1:f_chm_ni)  = 0.0
+     wd_HCO3(1:f_chm_ni) = 0.0
+     wd_H(1:f_chm_ni)    = 0.0
+     wd_SSLT(1:f_chm_ni) = 0.0
+     wd_OCBN(1:f_chm_ni) = 0.0
+     wd_H2O(1:f_chm_ni)  = 0.0
+     wd_DUST(1:f_chm_ni) = 0.0
+     wd_BLC(1:f_chm_ni)  = 0.0
+     wd_PCBN(1:f_chm_ni) = 0.0
+!  Zero the particle dry deposition accumulator variables:
+     dd_PSO4(1:f_chm_ni) = 0.0
+     dd_PSS(1:f_chm_ni)  = 0.0
+     dd_POC(1:f_chm_ni)  = 0.0
+     dd_PNO3(1:f_chm_ni) = 0.0
+     dd_PNH4(1:f_chm_ni) = 0.0
+     dd_PCM(1:f_chm_ni)  = 0.0
+     dd_PEC(1:f_chm_ni)  = 0.0
+     dd_PPC(1:f_chm_ni)  = 0.0
+
+   end if 
+!      
+   do i = 1, f_chm_ni
+!
+!  Add the wet deposition flux of the most recent timestep to the permanent bus accumulators:
+!
+     wd_HSO3(i) = wd_HSO3(i) + wetflx(i,1)
+     wd_HPXA(i) = wd_HPXA(i) + wetflx(i,2)
+     wd_RPXA(i) = wd_RPXA(i) + wetflx(i,3)
+     wd_SO4(i)  = wd_SO4(i)  + wetflx(i,4)
+     wd_NO3(i)  = wd_NO3(i)  + wetflx(i,5)
+     wd_NH4(i)  = wd_NH4(i)  + wetflx(i,6)
+     wd_CAT(i)  = wd_CAT(i)  + wetflx(i,7)
+     wd_HCO3(i) = wd_HCO3(i) + wetflx(i,8)
+     wd_H(i)    = wd_H(i)    + wetflx(i,9)
+     wd_SSLT(i) = wd_SSLT(i) + wetflx(i,10)
+     wd_OCBN(i) = wd_OCBN(i) + wetflx(i,11)
+     wd_H2O(i)  = wd_H2O(i)  + wetflx(i,12)
+     wd_DUST(i) = wd_DUST(i) + wetflx(i,13)
+     wd_BLC(i)  = wd_BLC(i)  + wetflx(i,14)
+     wd_PCBN(i) = wd_PCBN(i) + wetflx(i,15)
+!
+!  Add the particle dry deposition flux of the most recent timestep to the permanent bus accumulators:
+!
+     dd_PSO4(i)  = dd_PSO4(i) + dryflx(i,1) * 1.e3  / sm(sp_SU) % mol_wt
+     dd_PSS(i)   = dd_PSS(i)  + dryflx(i,2) * 1.e3  / sm(sp_SS) % mol_wt
+     dd_POC(i)   = dd_POC(i)  + dryflx(i,3) * 1.e3  / sm(sp_OC) % mol_wt
+     dd_PNO3(i)  = dd_PNO3(i) + dryflx(i,4) * 1.e3  / sm(sp_NI) % mol_wt
+     dd_PNH4(i)  = dd_PNH4(i) + dryflx(i,5) * 1.e3  / sm(sp_AM) % mol_wt
+     dd_PCM(i)   = dd_PCM(i)  + dryflx(i,6) * 1.e3  / sm(sp_CM) % mol_wt
+     dd_PEC(i)   = dd_PEC(i)  + dryflx(i,7) * 1.e3  / sm(sp_EC) % mol_wt
+     dd_PPC(i)   = dd_PPC(i)  + dryflx(i,8) * 1.e3  / sm(sp_PC) % mol_wt
+!
+   end do
+!
+   contains
+      integer function ik(ix, kz)
+         implicit none
+         integer, intent(in) :: ix, kz
+         ik = (kz - 1) * f_chm_ni + (ix - 1)
+      end function ik
+
+!  A function for unit convertion
+      real function unitcnvr(schm)
+         character*5, intent(in) :: schm
+         if (schm == 'ug2kg') then
+            unitcnvr = 1.E-9
+         end if
+         if (schm == 'kg2ug') then
+            unitcnvr = 1.E+9
+         end if
+      end function
+
+end subroutine mach_pm_chem

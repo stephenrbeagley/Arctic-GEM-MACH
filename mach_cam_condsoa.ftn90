@@ -1,0 +1,102 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_condsoa.ftn90
+! Creation       : S. Gong, S. Gravel and B. Pabla for GEM-MACH, June 2008
+!
+! Description    : SOA Condensation routine
+!
+! Extra info     : First version created by S. Gong Aug 29 1999 for CAM
+!                  Use the same fraction of suphate condensation into
+!                  each bin for the total soa.
+!
+! Arguments:  IN
+!               ilev    -> no. z-direct. vertical levels
+!               lev     -> ilev + 1
+!               F_chm_ni-> number of longitude grid points
+!               il1     -> minimum index for F_chm_ni
+!               il2     -> maximum index for F_chm_ni
+!               throw   -> Temp
+!               isize   -> Number of size bins
+!               aeronum -> Number concentration of aerosols
+!               ntr     -> Total number of trace substances (gases and aerosols)
+!               ntp     -> Number of aerosol types
+!               roarow  -> Air density (kg/m3)
+!                  nn   -> Loop index on aerosol types
+!               jlat    -> J Slice number
+!              isize    -> Number of size bins
+!              delt     -> time step
+!              iae1     -> Index of first aerosol in trace substance list (ntr)
+!              pvol     -> Bin volume of dry aerosol
+!              pcond    -> fractional condensation to each bin
+!              rhop0    -> dry aerosol density [ug/m^3]
+!                soa    -> Secondary organics aerosols
+!
+!             OUT
+!              RGRID    -> Initial concentration of tracers in each bin
+!              RTCOND   -> Mass transfer rate onto each particle size bin
+!
+!             INOUT
+!              XROW     -> Tracers concentration
+!
+!============================================================================
+
+subroutine mach_cam_condsoa (lev, ilev, F_chm_ni, il1, il2, RGRID, aeronum, XROW, &
+                             ntr, ntp, roarow, nn, jlat, isize, delt,        &
+                             RTCOND, iae1, pvol, pcond, rhop0, soa, pressg, t, shj, &
+                             aerosize)
+
+   use mach_cam_headers_mod, only: mach_cam_intrsec_outer
+   implicit none
+
+   integer, intent(in)                                      :: F_chm_ni, ilev, isize, ntr, lev, ntp, il1, il2, iae1, jlat, nn
+   real,    intent(in)                                      :: delt
+   real,    intent(in),    dimension(F_chm_ni, ilev, isize) :: aeronum, pcond
+   real,    intent(in),    dimension(F_chm_ni, ilev)        :: soa
+   real,    intent(in),    dimension(ntp)                   :: rhop0
+   real,    intent(in),    dimension(isize)                 :: pvol
+   real,    intent(in),    dimension(F_chm_ni, lev)         :: t
+   real,    intent(in),    dimension(F_chm_ni, ilev)        :: shj, roarow
+   real,    intent(in),    dimension(2, isize)              :: aerosize
+   real ,   intent(in),    dimension(F_chm_ni)              :: pressg
+   real,    intent(out),   dimension(F_chm_ni, ilev, isize) :: rtcond
+   real,    intent(out),   dimension(F_chm_ni, ilev, ntr)   :: rgrid
+   real,    intent(inout), dimension(F_chm_ni, lev, ntr)    :: xrow
+
+!  local variables
+   integer  :: n, l, i
+   real  :: adt2, cond
+
+   cond = 0.0
+   adt2 = 2.0 * delt
+
+!  condensation rate of soa for each bin
+   do n = 1, isize
+      do l = 1, ilev
+         do i = il1, il2
+            cond = soa(i, l)
+            if (cond > 0.0 .and. aeronum(i, l, n) * roarow(i, l) >  1.0e6) then
+!  rate of soa condensed to each bin
+               rtcond(i, l, n) = pcond(i, l, n) * cond
+            else
+               rtcond(i, l, n) = 0.0
+            end if
+         end do
+      end do
+   end do
+
+
+!  call to compute the intersectional transport due to condensation process.
+   call mach_cam_intrsec_outer(lev, ilev, F_chm_ni, il1, il2, xrow, rgrid, ntr, ntp, iae1, &
+                         nn, adt2, rhop0, isize, rtcond, aeronum, pvol, 0, &
+                         pressg, t, shj, roarow, aerosize)
+   return
+end

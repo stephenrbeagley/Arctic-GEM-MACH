@@ -1,0 +1,286 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_hetv_headers_mod.ftn90
+! Creation       : S. Menard, H. Landry, Juillet 2008
+! Description    : Modules defining explicit interfaces for mach_hetv* subroutines
+!
+! Extra info     :
+!
+!============================================================================
+
+module mach_hetv_headers_mod
+   interface
+
+      subroutine mach_hetv_activity (method, n, ns, ne, m_h, m_hso4, m_nh4, m_no3, m_so4, m_oh, g_h_no3, g_h_hso4, g_nh4_hso4,  &
+                           g_nh42_so4, g_h_oh, g_nh4_oh, g_nh4_no3, g_h2_so4, g_nh43_hso42, g0_h_no3, g0_h2_so4,      &
+                           g0_h_hso4, g0_nh4_no3, g0_nh42_so4, g0_nh4_hso4, tc)
+         integer  n, ns, ne
+         character (len = *)  method
+         real *8, dimension(:) :: m_h, m_hso4, m_nh4, m_no3, m_so4, tc
+         real *8, dimension(:) :: m_oh, g_h_no3, g_h_hso4, g_nh4_hso4
+         real *8, dimension(:) :: g_nh4_no3, g_h2_so4, g_nh43_hso42
+         real *8, dimension(:) :: g_nh42_so4, g_h_oh, g_nh4_oh, g0_h_no3
+         real *8, dimension(:) :: g0_h2_so4, g0_h_hso4
+         real *8, dimension(:) :: g0_nh4_no3, g0_nh42_so4, g0_nh4_hso4
+      end subroutine mach_hetv_activity
+
+
+      subroutine mach_hetv_case1(npts, nr, ns1, ne1, so4, no3, nh4, hso4, hno3, h, nh3, amsul, ambis, &
+                       amnit, leto, t, tc, aw, iter, itero, k0, p1, p2, eps, eps2, lwn, ta, &
+                       ts, tn, ndiv, lwmin, tstd, small, smrt)
+         integer  npts, nr, ns1, ne1, iter, itero, ndiv
+         real *8  eps, eps2, lwmin, tstd, small, smrt
+         real *8, dimension(:)   :: t, aw, tc
+         real *8, dimension(:)   :: k0, p1, p2
+         real *8, dimension(:)   :: so4, nh4, hso4, ambis, h, lwn
+         real *8, dimension(:)   :: no3, amsul, amnit, leto, hno3, nh3, ta, ts, tn
+      end subroutine mach_hetv_case1
+
+      subroutine mach_hetv_case10 (npts, nr, ns10, ne10, so4, no3, nh4, hso4, hno3, h, nh3, amsul, ambis, amnit, &
+                         leto, t, tc, p, rh, iter, itero, k0, p1, p2, eps, eps2, rho, lwn, ta, ts, tn, &
+                         mdrh_amnit_amsul, drh_amnit, oh, ndiv, tstd, small, smrt)
+         integer  npts, nr, ns10, ne10
+         integer  iter, itero, ndiv
+         real *8 tstd, small, smrt, eps, eps2
+         real *8, dimension(:) :: t, p, rh, tc, rho, mdrh_amnit_amsul, drh_amnit
+         real *8, dimension(:) :: k0, p1, p2
+         real *8, dimension(:) :: so4, no3, nh4, hso4, amsul, ambis, amnit, leto, h, hno3, nh3, lwn, oh
+         real *8, dimension(:) :: ta, ts, tn
+      end subroutine mach_hetv_case10
+
+      subroutine mach_hetv_case11(npts, nr, ns11, ne11, so4_t, no3_t, nh4_t, hso4_t, hno3_t, h_t, &
+                        nh3_t, amsul_t, ambis_t, amnit_t, leto_t, t_t, tc_t, p_t, aw_t, &
+                        iter, itero, k0, p1, p2, eps, eps2, rho_t, lwn_t, ta_t, ts_t,   &
+                        tn_t, oh_t, ndiv, tstd, small, smrt)
+         integer  npts, nr, ns11, ne11
+         integer  iter, itero, ndiv
+         real *8 eps, eps2, small, tstd, smrt
+         real *8,  dimension(:)  :: t_t, p_t, aw_t, tc_t, rho_t
+         real *8,  dimension(:)  :: k0, p1, p2
+         real *8,  dimension(:)  :: so4_t, no3_t, nh4_t, hso4_t, amsul_t, ambis_t
+         real *8,  dimension(:)  :: amnit_t, leto_t, h_t, hno3_t, nh3_t, lwn_t, oh_t
+         real *8,  dimension(:)  :: ta_t, ts_t, tn_t
+      end subroutine mach_hetv_case11
+
+      subroutine mach_hetv_case12(npts, nr, ns12, ne12, so4, no3, nh4, hso4, hno3, h, nh3, amsul, &
+                        ambis, amnit, leto, t, tc, aw, iter, itero, k0, p1, p2, eps,    &
+                        eps2, rho, lwn, ta, ts, tn, oh, tstd, small, smrt)
+         integer  npts, nr, ns12, ne12
+         integer  iter, itero
+         real *8  eps, eps2
+         real *8  tstd, small, smrt
+         real *8, dimension(:) :: t, aw, tc, rho
+         real *8, dimension(:) :: k0, p1, p2
+         real *8, dimension(:) :: so4, no3, nh4, hso4, amsul, ambis, leto, h, lwn, oh
+         real *8, dimension(:) :: ta, ts, tn
+         real *8, dimension(:) :: amnit, hno3, nh3
+      end subroutine mach_hetv_case12
+
+      subroutine mach_hetv_case2(npts, nr, ns2, ne2, so4, no3, nh4, hso4, hno3, h, nh3, amsul, &
+                       ambis, amnit, leto, t, tc, aw, itero, k0, p1, p2, eps2, &
+                       lwn, ta, ts, tn, tstd, smrt)
+         integer  npts, nr, ns2, ne2
+         integer  iter, itero
+         real *8  eps2, tstd, smrt
+         real *8, dimension(:) :: t, aw, tc
+         real *8, dimension(:) :: k0, p1, p2
+         real *8, dimension(:) :: so4, nh4
+         real *8, dimension(:) :: hso4
+         real *8, dimension(:) :: lwn
+         real *8, dimension(:) :: no3
+         real *8, dimension(:) :: amsul, ambis
+         real *8, dimension(:) :: amnit, leto, h
+         real *8, dimension(:) :: hno3, nh3
+         real *8, dimension(:) :: ta, ts, tn
+      end subroutine mach_hetv_case2
+
+      subroutine mach_hetv_case3 (npts, ns3, ne3, so4, no3, nh4, hso4, hno3, h, nh3, amsul, ambis, amnit, leto, lwn, ta, ts, tn)
+         integer  npts, ns3, ne3
+         real *8, dimension(:) :: ta, ts, tn
+         real *8, dimension(:) :: so4, no3, nh4
+         real *8, dimension(:) :: hso4, amsul, ambis
+         real *8, dimension(:) :: amnit, leto, h
+         real *8, dimension(:) :: hno3, nh3, lwn
+      end subroutine mach_hetv_case3
+
+
+      subroutine mach_hetv_case4 (npts, nr, ns4, ne4, so4, no3, nh4, hso4, hno3, h, nh3, amsul, ambis,    &
+                        amnit, leto, t, tc, p, rh, iter, itero, k0, p1, p2, eps, eps2, lwn,     &
+                        ta, ts, tn, mdrh_leto_ambis, drh_ambis, ndiv, tstd, small, smrt)
+         integer  npts, nr, ns4, ne4
+         integer  iter, itero, ndiv
+         real *8 tstd, small, smrt, eps, eps2
+         real *8, dimension(:) :: t, p, rh, tc, mdrh_leto_ambis, drh_ambis
+         real *8, dimension(:) :: k0, p1, p2
+         real *8, dimension(:) :: so4, no3, nh4, hso4, leto, h, lwn
+         real *8, dimension(:) :: amsul, ambis, amnit, hno3, nh3, ta, ts, tn
+      end subroutine mach_hetv_case4
+
+      subroutine mach_hetv_case5(npts, nr, ns5, ne5, so4, no3, nh4, hso4, hno3, h, nh3, amsul,   &
+                       ambis, amnit, leto, t, tc, p, aw, iter, itero, k0, p1, p2, eps, &
+                       eps2, lwn, ta, ts, tn, ndiv, tstd, small, smrt)
+         integer npts, nr, ns5, ne5
+         integer ndiv, iter, itero
+         real *8 tstd, small, smrt, eps, eps2
+         real *8, dimension(:) :: t, p, aw, tc
+         real *8, dimension(:) :: k0, p1, p2
+         real *8, dimension(:) :: so4, no3, nh4, hso4, leto, h, lwn
+         real *8, dimension(:) :: amsul, ambis, amnit, hno3, nh3, ta, ts, tn
+      end subroutine mach_hetv_case5
+
+      subroutine mach_hetv_case6 (npts, ns6, ne6, so4, no3, nh4, hso4, hno3, h, nh3, amsul, ambis, amnit, leto, lwn, ta, ts, tn)
+         integer  npts, ns6, ne6
+         real *8, dimension(:) :: ta, ts, tn
+         real *8, dimension(:) :: so4, no3, nh4
+         real *8, dimension(:) :: hso4, amsul, ambis
+         real *8, dimension(:) :: amnit, leto, h
+         real *8, dimension(:) :: hno3, nh3, lwn
+      end subroutine mach_hetv_case6
+
+      subroutine mach_hetv_case7 (npts, nr, ns7, ne7, so4, no3, nh4, hso4, hno3, h, nh3, amsul, ambis, &
+                        amnit, leto, t, tc, p, rh, iter, itero, k0, p1, p2, eps, eps2, lwn,  &
+                        ta, ts, tn, mdrh_leto_amsul, drh_leto, ndiv, tstd, small, smrt)
+         integer npts, nr, ns7, ne7
+         integer iter, itero
+         integer ndiv
+         real *8 tstd, small, smrt
+         real *8 eps, eps2
+         real *8, dimension(:) :: t, p, rh, tc
+         real *8, dimension(:) :: k0, p1, p2
+         real *8, dimension(:) :: mdrh_leto_amsul, drh_leto
+         real *8, dimension(:) :: so4, no3, nh4
+         real *8, dimension(:) :: hso4, amsul, lwn, h
+         real *8, dimension(:) :: amnit
+         real *8, dimension(:) :: ambis, leto
+         real *8, dimension(:) :: hno3, nh3
+         real *8, dimension(:) :: ta, ts, tn
+      end subroutine mach_hetv_case7
+
+      subroutine mach_hetv_case8(npts, nr, ns8, ne8, so4, no3, nh4, hso4, hno3, h, nh3, amsul, &
+                       ambis, amnit, leto, t, tc, p, aw, iter, itero, k0, p1, p2,    &
+                       eps, eps2, lwn, ta, ts, tn, ndiv, tstd, small, smrt)
+         integer npts, nr, ns8, ne8
+         integer iter, itero, ndiv
+         real *8 eps, eps2
+         real *8 tstd, small, smrt
+         real *8, dimension(:) :: t, p, aw, tc
+         real *8, dimension(:) :: k0, p1, p2
+         real *8, dimension(:) :: so4, no3, nh4
+         real *8, dimension(:) :: hso4, amsul, h, lwn
+         real *8, dimension(:) :: ambis
+         real *8, dimension(:) :: amnit, leto
+         real *8, dimension(:) :: hno3, nh3
+         real *8, dimension(:) :: ta, ts, tn
+       end subroutine mach_hetv_case8
+
+      subroutine mach_hetv_case9 (npts, nr, ns9, ne9, so4, no3, nh4, hno3, nh3, amsul, ambis, amnit, &
+                        leto, t, k0, p1, p2, rho, lwn, ta, ts, tn, tstd, smrt)
+         integer  npts, nr, ns9, ne9
+         real *8  tstd, smrt
+         real *8, dimension(:) :: t
+         real *8, dimension(:) :: rho
+         real *8, dimension(:) :: k0, p1, p2
+         real *8, dimension(:) :: ta, ts, tn
+         real *8, dimension(:) :: so4, no3, nh4
+         real *8, dimension(:) :: amsul, ambis
+         real *8, dimension(:) :: amnit, leto
+         real *8, dimension(:) :: hno3, nh3, lwn
+      end subroutine mach_hetv_case9
+
+      subroutine mach_hetv_corrhno3(npts, nr, ns, ne, so4, no3, nh4, hso4, hno3, h, t, tc, aw,  &
+                          k0, p1, p2, rho, lwn, lwnmin, tstd )
+         integer  npts, nr, ns, ne
+         real *8  lwnmin, tstd
+         real *8, dimension(:) :: t, aw, tc
+         real *8, dimension(:) :: k0, p1, p2
+         real *8, dimension(:) :: rho
+         real *8, dimension(:) :: lwn
+         real *8, dimension(:) :: so4, no3, nh4
+         real *8, dimension(:) :: hso4
+         real *8, dimension(:) :: hno3
+         real *8, dimension(:) :: h
+      end subroutine mach_hetv_corrhno3
+
+      subroutine mach_hetv_main (npts, so4_i, no3_i, nh4_i, hso4_i, hno3_i, h_i, nh3_i, amsul_i,   &
+                        ambis_i, amnit_i, leto_i, t_i, p_i, rh_i, eps, eps2, iter, itero, &
+                        rho_i, lwn_i, metstbl, ndiv, lwmin, tstd, small, smrt, case_number)
+         logical, dimension(:) :: metstbl
+         integer npts
+         integer iter,  itero
+         integer ndiv
+         real, dimension(:) :: case_number
+         real *8 eps, eps2
+         real *8 lwmin, tstd, small, smrt
+         real *8, dimension(:) :: t_i, p_i, rh_i, rho_i
+         real *8, dimension(:) :: lwn_i
+         real *8, dimension(:) :: so4_i, no3_i, nh4_i
+         real *8, dimension(:) :: hso4_i, amsul_i, ambis_i
+         real *8, dimension(:) :: amnit_i, leto_i
+         real *8, dimension(:) :: hno3_i, nh3_i, h_i
+      end subroutine mach_hetv_main
+
+      subroutine mach_hetv_hetchem (gascon, aerocon, tempk, zpres, npts, nptsnz, ilev, ibulk, jlat, &
+                          aeronum, rhrow_new, aerosize, kount, iswhet, iso4, ihno3, inh3, &
+                          maxnsz, p3drow, rhorow, hetselec)
+         integer kount, npts, nptsnz, ilev
+         integer ibulk, jlat, iswhet, hetselec
+         integer iso4, ihno3, inh3
+         integer maxnsz
+         real, dimension (:, :)       :: tempk
+         real, dimension (:, :)       :: zpres
+         real, dimension (:, :, :)    :: aeronum
+         real, dimension (:, :)       :: rhrow_new
+         real, dimension (:, :)       :: aerosize
+         real, dimension (:, :)       :: p3drow, rhorow
+         real, dimension (:, :, : )   :: gascon
+         real, dimension (:, :, :, :) :: aerocon
+      end subroutine mach_hetv_hetchem
+
+      subroutine mach_hetv_hetvcall (npts, maxhet, maxghet, nsize, ghetf, hetf, tempk, rhrow, jlat, kount1, p3drow, rhorow)
+         integer  npts, maxghet, maxhet, nsize
+         integer  kount1, jlat
+         real, dimension(:)        :: tempk, rhrow
+         real, dimension(:)        :: p3drow, rhorow
+         real, dimension(:, :)     :: ghetf
+         real, dimension(:, :, :)  :: hetf
+      end subroutine mach_hetv_hetvcall
+
+      subroutine mach_hetv_isocall
+      end subroutine mach_hetv_isocall
+
+      subroutine mach_hetv_poly3v (a1, a2, a3, root, islv, npts, ns, ne)
+         integer  npts, ns, ne
+         real *8,  dimension(:) :: a1, a2, a3
+         integer, dimension(:) :: islv
+         real *8,  dimension(:) :: root
+      end subroutine mach_hetv_poly3v
+
+
+      subroutine mach_hetv_rebin (het, dhet_chem, tempk, zpres, aerosize, binnum, npts, maxcnz, &
+                        maxnsz, maxhet, kount, jlat)
+         integer  npts, maxcnz, maxnsz, maxhet, kount, jlat
+         real, dimension(:, :)       :: tempk, zpres
+         real, dimension(:, :)       :: aerosize
+         real, dimension(:, :, :)    :: binnum
+         real, dimension(:, :, :, :) :: het
+         real, dimension(:, :, :)    :: dhet_chem
+      end subroutine mach_hetv_rebin
+
+      subroutine mach_hetv_water (n, ns, ne, so4, h, no3, nh4, hso4, aw, lwo, lwn )
+         integer  i
+         integer  n, ns, ne
+         real *8, dimension (:) :: so4, h, no3, nh4, hso4, lwo, aw
+         real *8, dimension (:) :: lwn
+      end subroutine mach_hetv_water
+
+   end interface
+end module mach_hetv_headers_mod

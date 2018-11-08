@@ -1,0 +1,49 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_ptopo_grid_mod.ftn90
+! Creation       : H. Landry, Mai 2008
+! Description    : Modules definingdomain topology and local
+!                  grid sizes (horizontal only for now)
+!                  that were passed from GEM in order
+!                  to create BMF files for emissions.
+!
+! Extra info     :
+!
+!============================================================================
+module chm_ptopo_grid_mod
+
+   save
+
+   integer c_Ptopo_npex  ! GEM equiv. to Ptopo_npex (# of procs in x dir.)
+   integer c_Ptopo_npey  ! GEM equiv. to Ptopo_npey (# of procs in y dir.)
+   integer c_Ptopo_mycol ! GEM equiv. to Ptopo_mycol
+   integer c_Ptopo_myrow ! GEM equiv. to Ptopo_myrow
+   integer chm_ni ! GEM equiv. to p_ni  (local x size - from physics)
+   integer chm_nj ! GEM equiv. to p_nj  (local y size - from physics)
+   integer c_pni ! GEM equiv. to pni
+   integer chm_offi ! GEM equiv. to p_offi  (X-offset to local x size - from physics)
+   integer chm_offj ! GEM equiv. to p_offj  (Y-offset to local y size - from physics)
+   integer chm_l_ni ! GEM equiv. to l_ni
+   integer chm_l_nj ! GEM equiv. to l_nj
+   integer chm_l_nk ! GEM equiv. to l_nk global # of grid points along vertical
+   integer chm_G_ni ! GEM equiv. to G_ni global # of grid points along X  (scalar grid)
+   integer chm_G_nj ! GEM equiv. to G_nj global # of grid points along Y  (scalar grid)
+   integer chm_G_nk ! GEM equiv. to G_nk global # of grid points along Z  (scalar grid)
+   integer chm_l_i0 ! GEM equiv. to l_i0 left   global index of local subdomain
+   integer chm_l_j0 ! GEM equiv. to l_j0 bottom global index of local subdomain
+   integer chm_north ! GEM equiv. to north =1 if touching north boundary for LAM
+   integer chm_east ! GEM equiv. to east  =1 if touching east  boundary for LAM
+   integer chm_west ! GEM equiv. to west  =1 if touching west  boundary for LAM
+   integer chm_south ! GEM equiv. to south =1 if touching south boundary for LAM
+
+
+end module chm_ptopo_grid_mod

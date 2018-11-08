@@ -1,0 +1,68 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_stop.ftn90
+! Creation       : A. Kallaur, H.landry, May 2007
+! Description    : Premature stop in chemistry and clean exit in a MPI world.
+!
+! Extra info     : Similar to gem_stop on the GEM side.
+!                  It should not use chm_lun_out, since chm_stop can be called
+!                  when chm_lun_out is not set yet.
+!
+! Arguments:
+!              IN
+!                 F_name_S --> Name of the calling routine
+!                 F_err    --> Error code
+!
+!===========================================================================
+
+subroutine chm_stop (F_name_S, F_err)
+   use chm_utils_mod
+   implicit none
+
+   character (len = *), intent(in) :: F_name_S
+   integer,        intent(in) :: F_err
+
+!implicits
+!
+
+   integer  longueur
+   external longueur
+   integer  errcode_, err
+!
+!     ---------------------------------------------------------------
+!
+   call flush(6)
+   call rpn_comm_BARRIER("grid",err)
+   call rpn_comm_ALLREDUCE (F_err, errcode_, 1, "MPI_INTEGER", "MPI_SUM", "grid", err)
+   if (errcode_ < 0) then
+      write(0, 1000) F_name_S(1:longueur(F_name_S))
+      call wlog('STOP')
+      call rpn_comm_FINALIZE(err)
+      stop
+   endif
+
+1000 format(                                               &
+       /, '==============================================',  &
+       /, '>                                            <',  &
+       /, '>   IN CHEMISTRY --> PREMATURE STOP          <',  &
+       /, '>                                            <',  &
+       /, ' ', a,                                             &
+       /, '>                                            <',  &
+       /, '>             ABORTING THE RUN               <',  &
+       /, '>                                            <',  &
+       /, '==============================================',  &
+       / /)
+!
+!     ---------------------------------------------------------------
+!
+   return
+end subroutine chm_stop

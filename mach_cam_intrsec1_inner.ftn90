@@ -1,0 +1,174 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+!  Modification:  subdivision of the bin distribution is now done inside
+!  mach_cam_intrsec1_outer.ftn90.   Consequently, the size of xrow
+!  has decreased here to include only the particle bins.
+!  P.A. Makar, W. Gong, S. Gong, February 2009.
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_intrsec1.ftn90
+! Creation       : S. Gong, W. Gong, V. Bouchet, S. Gravel and
+!                  B. Pabla for GEM-MACH, June 2008
+! Description    : This module computes intersectional transport of aerosols
+!                  due to comdensation or cloud processes
+!
+! Extra info     : - First version created by S. Gong Aug 11 1997 for CAM
+!                  - Modified for mass redistribution after cloud chemistry
+!                    process (W. Gong, Oct 2000)
+!                    1. change from volume fraction to mass fraction;
+!                    2. extend to moving mass in either directions;
+!                    3. deal with net mass change in a single aerosol
+!                       as opposed to one component at a time;
+!                    4. correcting an error to insure mass conservation
+!                       in the case of skipping bins.
+!                  - Correction to the reallocation loop (V. Bouchet, Jul 2000)
+!
+! Arguments:  IN
+!               ilev    -> no. z-direct. vertical levels
+!               lev     -> ilev+1
+!               F_chm_ni-> number of longitude grid points
+!               il1     -> minimum index for F_chm_ni
+!               il2     -> maximum index for F_chm_ni
+!               ntr     -> Total number of trace substances (gases and aerosols)
+!               ntp     -> Number of aerosol types
+!               isize   -> Number of size bins
+!               daqchm  -> Combined mass change in each particle size bin
+!               aeronum -> Number concentration of aerosols
+!               rmass   -> Single aerosol mass in each size bin before cloud chemistry
+!
+!             OUT
+!
+!             IN/OUT
+!               XROW    -> Particle tracer concentration in each bin before/after intersection tranport
+!
+!============================================================================
+
+subroutine mach_cam_intrsec1_inner(lev, ilev, F_chm_ni, il1, il2, XROW, ntr, ntp, isize, &
+                              daqchm, aeronum, rmass)
+   implicit none
+
+   integer, intent(in)    :: lev, ilev, F_chm_ni, ntr, isize
+   integer, intent(in)    :: il1, il2, ntp
+   real,    intent(in)    :: daqchm(F_chm_ni, ilev, isize)
+   real,    intent(in)    :: aeronum(F_chm_ni, ilev, isize)
+   real,    intent(in)    :: rmass(F_chm_ni, ilev, isize)
+   real,    intent(inout) :: xrow(F_chm_ni, lev, ntr)
+
+!  local variables
+
+   integer :: k0
+   integer :: k, np, ik, l, il, n, i, nt, no, nk
+   real    :: rcond, rmoij, rmok, rmokp1, rmokm1
+   real    :: rgrid(F_chm_ni, ilev, ntr)
+   real    :: rth(F_chm_ni, ilev, isize)
+
+   real, parameter    :: smf = 0.001, smf1 = 1.0e-35
+
+   rcond    = 0.0
+   rgrid    = 0.0
+   rmoij    = 0.0
+   rmok     = 0.0
+   rmokm1   = 0.0
+   rmokp1   = 0.0
+   rth      = 0.0
+
+   do k = 1, isize
+      do np = 1, ntp
+         ik = (np - 1) * isize + k 
+         do l = 1, ilev
+            do il = il1, il2
+               rgrid(il, l, ik) = xrow(il, l + 1, ik)
+            end do
+         end do
+      end do
+   end do
+
+!  condensation rate
+   do n = 1, isize
+      rth = 0.0
+
+!  growth
+      do k = n, isize
+         do l = 1, ilev
+            do i = il1, il2
+               rcond = daqchm(i, l, n)
+
+!  new dry mass (single aerosol) of size bin n
+               rmoij = max(0.0, rmass(i, l, n) + rcond / (aeronum(i, l, n) + smf))
+               rmok = rmass(i, l, k)
+               if (k == isize .and. rmoij >= rmok) then
+                  rth(i, l, k) = 1.0
+               end if
+               if (k < isize) then
+                  k0 = min ( k+1, isize )
+                  rmokp1 = rmass(i, l, k0)
+                  if( rmoij >= rmok .and. rmoij < rmokp1) then
+                     rth(i, l, k) = rmok / (rmoij + smf1) * (rmokp1 - rmoij) / (rmokp1 - rmok)
+                  end if
+               end if
+               if (k > 1) then
+                  k0 = max ( 1, k-1 )
+                  rmokm1 = rmass(i, l, k0)
+                  if( rmoij > rmokm1 .and. rmoij < rmok) then
+                     rth(i, l, k) = 1.0 - rth(i, l, k0)
+                  end if
+               end if
+            end do
+         end do
+      end do
+
+!  reduction
+   do k = n, 1, -1
+      do l = 1, ilev
+         do i = il1, il2
+            rcond = daqchm(i, l, n)
+!  new dry mass (single aerosol) of size bin n
+            rmoij = max(0.0, rmass(i, l, n) + rcond / (aeronum(i, l, n) + smf))
+            rmok = rmass(i, l, k)
+            if (k == 1 .and. rmoij <= rmok) then
+               rth(i, l, k) = 1.0
+            end if
+            if (k > 1) then
+               rmokm1 = rmass(i, l, k - 1)
+               if( rmoij >= rmokm1 .and. rmoij < rmok) then
+                  rth(i, l, k) = rmok / (rmoij + smf1) * (rmoij - rmokm1) / (rmok - rmokm1)
+               end if
+            end if
+            if (k < isize) then
+               rmokp1 = rmass(i, l, k + 1)
+               if( rmoij > rmok .and. rmoij < rmokp1) then
+                  rth(i, l, k) = 1.0 - rth(i, l, k + 1)
+               end if
+            end if
+         end do
+      end do
+   end do
+
+   do k = 1, isize
+      do nt = 1, ntp
+         no = n + isize * (nt - 1) 
+         nk = k + isize * (nt - 1) 
+            do l = 1, ilev
+               do i = il1, il2
+!  zero bin n for re-distribution
+                  if (n == k) then
+                     xrow(i, l + 1, no) = max(0.0, xrow(i, l + 1, no) - rgrid(i, l, no))
+                  end if
+!  distributed into bin k
+                   xrow(i, l + 1, nk) = max(0.0, xrow(i, l + 1, nk) + rgrid(i, l, no) * rth(i, l, k))
+               end do
+            end do
+         end do
+      end do
+   end do
+
+   return
+end

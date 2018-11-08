@@ -1,0 +1,157 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project  : GEM-MACH
+! Fichier/File    : chm_mjrpts_get_stkinfo.ftn90
+! Creation        : A. Kallaur, H. Landry, S. Menard - janvier/fevrier 2007
+! Description     : Retreive major point source stack information
+!
+! Extra info      :
+!
+! Arguments :
+!
+!          IN
+!             pe_file        -->  Assembled major point source filename
+!             etype          -->  Emissions type (MJ) -> Major Point source
+!
+!          OUT
+!             numsrcs_l      --> If number of sources
+!                                (after trimming) > 0,
+!                                then = .true.
+!                                else = .false.
+!
+!==============================================================================
+
+subroutine chm_mjrpts_get_stkinfo(pe_file, etype, numsrcs_l)
+   use chm_utils_mod
+   use chm_nml_mod
+   use chm_datime_mod
+   use chm_mjrpts_sortinfo_mod
+   use chm_mjrpts_species_idx_mod
+   use chm_headers_mod, only: chm_mjrpts_fstread,   chm_mjrpts_mask, &
+                              chm_mjrpts_trim,          chm_mjrpts_translate, chm_mjrpts_assign_fld, &
+                              chm_fst_openfile,         chm_fst_closefile
+   implicit  none
+
+   character*(*), intent(in)  :: pe_file
+   character*(*), intent(in)  :: etype
+   logical      , intent(out) :: numsrcs_l
+
+
+! Local variables
+
+   integer                         :: i, j1, j2, key
+   integer                         :: fu_mjrpts_in
+   real, allocatable, dimension(:) :: pa,pa_tr
+   logical                         :: local_dbg
+!
+!  External Functions
+!
+   integer                         :: fstinf
+   external                           fstinf
+
+   local_dbg = (.false. .or. global_debug)
+   if (local_dbg) then
+      write(chm_lun_out, *) ' In chm_mjrpts_get_stkinfo:'
+      write(chm_lun_out, *) ' pe_file       = ', pe_file
+      write(chm_lun_out, *) ' etype         = ', etype
+   endif
+!
+!  First off, attempt to canonically open point source file stored in RPN/FST format.
+!  Determine number of point sources in file, allocate work array, as well as
+!  mask array "pt_bnd_mask". The size of "pt_bnd_mask" must always be=nb_sources_in.
+!  If therere happens to be a boundary region, then nb_sources <= nb_sources_in.
+!
+   fu_mjrpts_in = 0
+   call chm_fst_openfile(FU_MJRPTS_IN, pe_file, 'RND+OLD', 'RND')
+!
+   key = fstinf(fu_mjrpts_in, nb_sources_in, j1, j2, -1, ' ', -1, -1, -1, ' ', ' ')
+   if(nb_sources_in > nb_sources_max) then
+      write(0,*) 'Number of point sources in the current tile (nb_sources_in) is greater than the'
+      write(0,*) 'maximum number of sources set in gem_settings (nb_sources_max).'
+      write(0,*) 'Code stopping in s/r chm_mjrpts_get_stkinfo to avoid dimensioning'
+      write(0,*) 'errors.  nb_sources_max = ',nb_sources_max,' nb_sources_in = ',nb_sources_in
+      call qqexit(-1)
+   end if
+   if (nb_sources_in > 0) then
+      if (local_dbg) then
+         write(chm_lun_out, *) 'Found  ', nb_sources_in, ' point sources in file'
+      end if
+      allocate (pa         (nb_sources_in))
+      allocate (pt_bnd_mask(nb_sources_in))
+      pt_bnd_mask  =.true.
+   else
+      if (local_dbg) then
+         write(chm_lun_out, *) 'ERROR: expecting number of point sources > 0'
+      end if
+      call chm_stop('chm_mjrpts_get_stkinfo', -1)
+   endif
+   if (local_dbg) then
+      write(chm_lun_out, *) 'emjpt_stki_ll = ', emjpt_stki_ll
+   end if
+!
+!  Begin reading the fields containing the time invariant info.
+!
+!  Special case vectors containing local {i,j} coordinates.
+!  Solution:
+!    read them in Twice -> Once to determine "mask" vector and "true" size
+!                       -> Read Again later (with the rest of stack info
+!                          in the do i = 1, emjpt_stki_ll loop
+!  Rational:
+!  Because of global boundary region, it may be necessary to eliminate some of the
+!  points, and offset by amount chm_offi or chm_offj, or both from a combination of the
+!  North,South,West, or East sides. Hence, first these vectors are read in (if they
+!  are NOT found, --> the model run is aborted). An appropriate "filter mask" vector is
+!  estasblished by which all other fields will pass when a read is made.
+!
+   call chm_mjrpts_fstread(PA, fu_mjrpts_in,'GILC', -1, nb_sources_in)
+   call chm_mjrpts_mask(pa,nb_sources_in,'GILC')
+   call chm_mjrpts_fstread(PA, fu_mjrpts_in,'GJLC', -1, nb_sources_in)
+   call chm_mjrpts_mask(pa,nb_sources_in,'GJLC')
+!
+!  Set logical variable
+!
+   if ( nb_sources > 0 ) then
+      numsrcs_l = .true.
+   else
+      numsrcs_l = .false.
+   endif
+!
+!  Now that nb_sources is set in stone, we can allocate the memory for the
+!  "trimmed" version of the "pa" working array "pa_tr"
+!
+   allocate (pa_tr(nb_sources))
+   do i = 1, emjpt_stki_ll
+      if (local_dbg) then
+         write(chm_lun_out, *) 'reading mj. pt stack info: ', mjptnmv_stki_list(i)
+      end if
+      call chm_mjrpts_fstread(PA, fu_mjrpts_in, mjptnmv_stki_list(i), -1, nb_sources_in)
+      call chm_mjrpts_trim(pt_bnd_mask,pa,nb_sources_in,PA_TR,nb_sources)
+      if (mjptnmv_stki_list(i).eq.'GILC') then
+         write(chm_lun_out,*) 'Translating local i coords vector by chm_offi'
+         call chm_mjrpts_translate(PA_TR,nb_sources,'GILC')
+      endif
+      if (mjptnmv_stki_list(i).eq.'GJLC') then
+         write(chm_lun_out,*) 'Translating local j coords vector by chm_offj'
+         call chm_mjrpts_translate(PA_TR,nb_sources,'GJLC')
+      endif
+      call chm_mjrpts_assign_fld(mjptnmv_stki_list(i), pa_tr, nb_sources)
+   enddo ! i=1, emjpt_ll
+
+   call chm_fst_closefile(fu_mjrpts_in)
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Exit chm_mjrpts_get_stkinfo:'
+   end if
+
+   deallocate (pa)
+   deallocate (pa_tr)
+
+   return
+end subroutine chm_mjrpts_get_stkinfo

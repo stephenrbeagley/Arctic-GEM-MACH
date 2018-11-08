@@ -1,0 +1,28 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_incld_mod.ftn90
+! Creation       : H. Landry, Sept 2008
+! Description    : Modules defining common variables for mach_incld subroutines
+!
+! Extra info     :
+!
+!============================================================================
+
+module mach_incld_mod
+
+   save
+
+   real :: gmin, aqmin
+   real :: dtsrt(2), dtmax, dtmin
+   real :: domnfe, doh2o2, dorooh
+
+end module mach_incld_mod

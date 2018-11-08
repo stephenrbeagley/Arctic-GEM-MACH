@@ -1,0 +1,94 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_plumerise_apply.ftn90
+! Creation       : Alexander Kallaur, Stephane Gaudreault april 2008 adaptation for GEM-MACH
+!                  Wanmin Gong, for AURAMS 2004
+!                  Original version from Janusz Pudykiewicz for CHRONOS 1995
+!
+! Description    : Application of "weight" values stored in vertical column to concentration
+!                  field of an advected chemical species, and of a single stack.
+!                  Called by mach_plumerise.
+!
+! Extra info     : Values in vertical array "weight" must already be pre-calculated. See
+!                  mach_plumerise_weight.ftn90 for method which they are calculated.
+!
+! Arguments:
+!            IN
+!                ni, nk     : vertical slab dimensions
+!                stack_i    : Location along horizontal axis of stack
+!                emiss_rate : Emission rate (g/s) of chemical specie
+!                rho        : Air density (kg/m3)
+!                weight     : Weight factors (over vertical column) to be applied
+!                dt         : Time step length (in seconds)
+!
+!             IN/OUT
+!                fconc      : Concentration field of advected chemical specie (ug/kg)
+!
+!============================================================================
+!
+subroutine mach_plumerise_apply(FCONC, emiss_rate, weight, rho, ni, nk, stack_i, dt, cell_area)
+
+use chm_utils_mod
+
+implicit none
+!  Declaration of subroutine arguments
+!
+   integer              :: ni,nk,stack_i
+   real,  intent(in)    :: emiss_rate
+   real,  intent(in)    :: dt
+   real,  intent(in)    :: weight(nk)
+   real,  intent(in)    :: rho   (ni,nk)
+   real,  intent(inout) :: fconc (ni,nk)
+   real,  intent(in)    :: cell_area
+!
+!  Local variables
+!
+   integer              :: k
+   logical              :: local_dbg
+   real, parameter :: GRAMMES_TO_MICROGRAMMES    = 1.0e+06  ! conversion factor (g --> ug)
+
+
+   local_dbg = (.false. .or. global_debug)
+
+   if (local_dbg) then
+      write(chm_lun_out, *) ' '
+      write(chm_lun_out, *) '*****************************************************************'
+      write(chm_lun_out, *) 'ENTER mach_plumerise_apply subroutine'
+      write(chm_lun_out, *) 'Emission rate          : ' ,emiss_rate
+      write(chm_lun_out, *) 'Weight sum on the column: ', sum(weight)
+      write(chm_lun_out, *) 'weight function values : '
+      write(chm_lun_out, *) weight
+      write(chm_lun_out, *) 'X-coord of stack       : ',stack_i
+      write(chm_lun_out, *) 'ni,nk                  : ',ni,nk
+      write(chm_lun_out, *) 'dt                     : ',dt
+
+      do k = nk, 1, -1
+         if (weight(k) < 0) then
+            write(0, *) '### Error in mach_plumerise_apply ###'
+            write(0, *) '# Negative weight for level ', k
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('mach_plumerise_apply', -1)
+         endif
+      end do
+   end if
+
+   do k = nk, 1, -1
+      fconc(stack_i,k) = fconc(stack_i,k) + ((emiss_rate * (GRAMMES_TO_MICROGRAMMES / cell_area) * weight(k)) / rho(stack_i,k)) * dt
+   enddo
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Exit function mach_plumerise_apply '
+      write(chm_lun_out, *) '*****************************************************************'
+      write(chm_lun_out, *) ' '
+   end if
+
+end subroutine mach_plumerise_apply

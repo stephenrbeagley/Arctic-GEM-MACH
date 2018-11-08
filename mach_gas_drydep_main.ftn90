@@ -1,0 +1,103 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_gas_drydep_main.ftn90
+! Creation       : A. Kallaur S. Menard, H. Landry, P.A. Beaulieu  - Jan 2008
+! Description    : Prepare, and loop over all advected gaseous species to
+!                  compute dry deposition velocities using mach_gas_drydep_solver
+!
+! Arguments:
+!            IN
+!              f_busper    --> Permanent physical bus
+!              f_busvol    --> Volatile physical bus
+!              f_bper_siz  --> Size of the permanent physical bus
+!              f_bvol_siz  --> Size of the volatile physical bus
+!              chm_ni      --> No. x-direction (W-E) gridpoints
+!              psrf        --> Surface presssure [mb]
+!                              PhyVar(2p -> pplus from Dyn bus)
+!              hu          --> 3D Specific humidity
+!
+!            IN/OUT
+!              f_chmbusper --> Permanent bus for chemistry
+!              f_chmbusvol --> Volatile bus for chemistry
+!
+!==============================================================================
+
+subroutine mach_gas_drydep_main(f_chmbusper, f_chmbusvol, f_busper, f_busvol, hu2d, f_bper_siz, f_bvol_siz, &
+                                psrf, chm_ni, deposited_species, nsp_depos                            )
+   use chm_utils_mod
+   use chm_consphychm_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use chm_phyvar_mod
+   use mach_gas_headers_mod, only: mach_gas_drydep_solver, mach_gas_drydep_stat
+   implicit none
+
+! Arguments
+   real, dimension(*),            intent(inout) :: f_chmbusper, f_chmbusvol
+   integer,                       intent(in)    :: f_bper_siz, f_bvol_siz
+   real,                          intent(in)    :: f_busper(f_bper_siz), f_busvol(f_bvol_siz)
+   integer,                       intent(in)    :: chm_ni
+   real, dimension(chm_ni),       intent(in)    :: psrf, hu2d
+   integer,                       intent(in)    :: nsp_depos
+   integer, dimension(nsp_depos), intent(in)    :: deposited_species
+
+!  Local variables
+
+    logical            :: local_dbg
+    integer            :: sp_index
+
+   local_dbg = (.false. .or. global_debug)
+
+   if (local_dbg) then
+      write(chm_lun_out, *) ' Begin mach_gas_drydep_main:'
+   end if
+
+!  Perform dry deposition for all chemical species of interest
+   do sp_index = 1, nsp_depos
+
+       call mach_gas_drydep_solver(F_CHMBUSVOL(SM(DEPOSITED_SPECIES(SP_INDEX)) % VD_OFFSET), &
+                                   F_CHMBUSVOL(SM(sp_LU15) % RA_OFFSET),                     &
+                                   F_CHMBUSVOL(SM(DEPOSITED_SPECIES(SP_INDEX)) % RB_OFFSET), &
+                                   F_CHMBUSVOL(SM(DEPOSITED_SPECIES(SP_INDEX)) % RC_OFFSET), &
+                                   f_chmbusper(sm(sp_SESN) % per_offset),                     &
+                                   f_chmbusper(sm(sp_LU15) % per_offset),                     &
+                                   f_busvol(mol)        , f_busper(flusolis),                 &
+                                   f_busper(tsurf)      , f_busper(glsea),    f_busvol(psn),  &
+                                   f_busper(mg),                                              &
+                                   f_busvol(ue)             , f_busvol(rainrate),             &
+                                   f_busper(snodp)        ,                                   &
+                                   psrf                    , hu2d,                            &
+                                   chm_ni , deposited_species(sp_index), sp_index            )
+
+       if (local_dbg) then
+          call mach_gas_drydep_stat(f_chmbusvol(sm(deposited_species(sp_index)) % vd_offset), &
+                                     f_chmbusvol(sm(sp_LU15) % ra_offset),                     &
+                                     f_chmbusvol(sm(deposited_species(sp_index)) % rb_offset), &
+                                     f_chmbusvol(sm(deposited_species(sp_index)) % rc_offset), &
+                                     f_chmbusper(sm(sp_SESN) % per_offset),                    &
+                                     f_chmbusper(sm(sp_LU15) % per_offset),                    &
+                                     f_busvol(mol)           , f_busper(flusolis),             &
+                                     f_busper(tsurf)         ,                                 &
+                                     f_busvol(ue)            , f_busvol(rainrate),             &
+                                     f_busper(snodp)         ,                                 &
+                                     psrf                    , hu2d,                           &
+                                     chm_ni                  , deposited_species(sp_index)     )
+
+      end if
+
+   end do
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'mach_gas_drydep_main EXIT'
+   end if
+
+end subroutine mach_gas_drydep_main

@@ -1,0 +1,55 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_incld_steady1.ftn90
+! Creation       : W. Gong, Menard, S. Gravel, GEM-MACH, June 2008
+! Description    : Diagnostically calculate H+, OH- AND FEMN
+!
+! Extra info     : ADOM  VERSION: ADOMIIB(CLEAN)  LEVEL: 06/09/89  STEADY  ENSR(AES)
+!
+! Arguments  IN
+!              maxnsaq   --> No. of Aqueous species  (13)
+!              b         --> Aqueous variable coefficients
+!
+!            INOUT
+!              X         --> H+, OH- AND FEMN
+!
+!=============================================================================
+
+subroutine mach_incld_steady1 (X, b, nptsnz)
+   use mach_cam_utils_mod, only: maxnsaq
+
+   implicit none
+
+   integer, intent(in) :: nptsnz
+   real, intent(in)    :: b(nptsnz,5,2)
+   real, intent(inout) :: x(nptsnz,maxnsaq,2)
+
+!  local variables
+   integer :: i, ii
+   real    :: xhi, xoh, xh
+
+   do ii = 1, nptsnz
+   xhi = x(ii,1,1) + 2.e0 * x(ii,4,1) + x(ii,5,1) - x(ii,6,1) + x(ii,8,1) - x(ii,7,1)
+   xoh = 0.
+    do i = 1, 2
+       xh = max(3.0e-7, xhi + xoh)
+       xoh = 1.e-14 / xh
+    end do
+!  h+
+   x(ii,9,1) = xh
+!  oh-
+   x(ii,10,1) = xoh
+!  femn
+   x(ii,11,1) = b(ii,5,1) / b(ii,4,1) * x(ii,7,1)
+   end do
+return
+end

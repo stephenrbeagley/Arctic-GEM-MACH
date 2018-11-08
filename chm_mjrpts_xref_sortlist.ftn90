@@ -1,0 +1,132 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_xref_sortlist.ftn90
+! Creation       : A. Kallaur, May 2007
+! Description    : Sort major points sources emissions along i, j
+!
+! Extra info     :
+!
+! Arguments      : None
+!============================================================================
+
+subroutine chm_mjrpts_xref_sortlist( )
+   use chm_utils_mod
+   use chm_ptopo_grid_mod
+   use chm_mjrpts_sortinfo_mod
+   use chm_headers_mod, only: chm_mjrpts_get_llnode, chm_q_sort
+   implicit none
+
+!
+! Local variables and fields
+!
+   integer                        :: i, j, anchor
+   integer                        :: bgnjb, endjb
+   real                           :: prev, curr
+   real   , dimension(nb_sources) :: icrd, jcrd
+   real   , dimension(nb_sources) :: ticrd, tjcrd
+   integer, dimension(nb_sources) :: txrfl
+   logical                        :: local_dbg
+!
+! First, we get the logical local (i, j) coordinates
+!
+   local_dbg = (.false. .or. global_debug)
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Entered subroutine chm_mjrpts_xref_sortlist'
+   end if
+   call chm_mjrpts_get_llnode(ICRD, nb_sources, 'GILC')
+   call chm_mjrpts_get_llnode(JCRD, nb_sources, 'GJLC')
+!
+! Allocate memory for cross reference index array, and
+! assign sort_xref(i) = i, for i=1, nb_sources
+!
+   allocate (sort_xref(nb_sources))
+   do i=1, nb_sources
+      sort_xref(i) = i
+   enddo
+!
+! Use quick sort to sort first over j coords.
+!
+   txrfl = sort_xref
+   tjcrd = jcrd
+   ticrd = icrd
+   call chm_q_sort (TJCRD, TXRFL, 1, nb_sources)
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Unsorted, and Sorted list of j coords:'
+   end if
+   do i=1, nb_sources
+      ticrd(i) = icrd(txrfl(i))
+      if (local_dbg) then
+         write(chm_lun_out, 10) sort_xref(i), jcrd(i), icrd(i), txrfl(i), tjcrd(i), ticrd(i)
+      end if
+   enddo
+   10 format(i6, 2f8.1, i6, 2f8.1)
+!
+! Perform the second sort, over i coords, as per groups
+! of equal valued j-coords.
+!
+   anchor = 1
+   prev   = -1.0e25
+   do i = 1, nb_sources
+      if (prev /= tjcrd(i)) then
+         if ((i-anchor) > 1) then
+            call chm_q_sort(TICRD(anchor), TXRFL(anchor), 1, i-anchor)
+         endif
+         anchor = i
+      endif
+      prev = tjcrd(i)
+      if (local_dbg) then
+         write(chm_lun_out, *) 'prev, current, anchor =', prev, tjcrd(i), anchor
+      end if
+   enddo
+   sort_xref = txrfl
+   do i = 1, nb_sources
+      tjcrd(i) = jcrd(sort_xref(i))
+      ticrd(i) = icrd(sort_xref(i))
+   enddo
+!
+! Proceed to populate the 2 layer vector containing j-coord offsets,
+! (beginning and end markers for each groups of i-coords under single
+! j-coord. First, however, allocate the appropriate amount of
+! memory space, and initialise with values indicating missing range (-1, -1)
+!
+   if (local_dbg) then
+      write(chm_lun_out, *) 'c_Ptopo_mycol, c_Ptopo_myrow :',c_Ptopo_mycol, c_Ptopo_myrow
+      write(chm_lun_out, *) 'N E W S Boundaries           : ',chm_north, chm_east, chm_west, chm_south
+      write(chm_lun_out, *) 'chm_offi, chm_offj           : ',chm_offi, chm_offj
+   endif
+
+    allocate (jcrdlimits(chm_nj, 2))
+    jcrdlimits = -1
+    do i = 1, nb_sources
+       if (jcrdlimits(int(tjcrd(i)), 1) == -1) then
+           jcrdlimits(int(tjcrd(i)), 1) = i
+           jcrdlimits(int(tjcrd(i)), 2) = i
+       else
+           jcrdlimits(int(tjcrd(i)), 2) = i
+       endif
+    enddo ! do i = 1, nb_sources
+
+    if (local_dbg) then
+        write(chm_lun_out, *) ' '
+        write(chm_lun_out, *) ' '
+        write(chm_lun_out, *) 'After 2nd sort:'
+        write(chm_lun_out, *) 'Unsorted, and Sorted list of j coords:'
+      do i = 1, nb_sources
+         write(chm_lun_out, *) i, ticrd(i), tjcrd(i), sort_xref(i)
+      enddo
+      do i = 1, chm_nj
+         write(chm_lun_out, *) 'jslab, jcrdlimits[1, 2] : ', i, jcrdlimits(i, 1), jcrdlimits(i, 2)
+      enddo
+   endif
+   return
+end

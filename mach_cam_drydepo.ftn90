@@ -1,0 +1,321 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_drydepo.ftn90
+! Creation       : S. Gong, P. Makar, L. Zhang, S. Gravel and B. Pabla for GEM-MACH, June 2008
+!
+! Description    : This is an entry subroutine of the dry deposition processes
+!
+! Extra info     : - First version created by S. Gong Aug 04 1994 for CAM
+!                    Method:
+!                       parameterization of dry deposition scheme by Filippo Giorgi
+!                       [JGR, 91(D9), 1986] was used.
+!                       Two layer model.
+!                  - Vectorized the whole program and add working spaces.
+!                    fveg, cd012, cvocdl, aexp (S. Gong, Dec 19, 1996)
+!                  - Refined parameterization for particles compared with empirical
+!                    model resutls. (L. Zhang, Jan 15, 1998)
+!                  - Pass all control variables for 15 land-use from the
+!                    control file. (S. Gong, Aug 01, 1999)
+!
+! Arguments:  IN
+!               ilev    -> no. z-direct. vertical levels
+!               lev     -> ilev + 1
+!               F_chm_ni-> number of longitude grid points
+!               il1     -> minimum index for F_chm_ni
+!               il2     -> maximum index for F_chm_ni
+!               seasn   -> Assigned season descriptors
+!               Ra      -> Aerodynamic resistance for species "species" (s/m)
+!               usi     -> friction velocity
+!             throw     -> Temp
+!               isize   -> Number of size bins
+!               ntp     -> Number of aerosol types
+!               ntr     -> Total number of trace substances (gases and aerosols)
+!               adt2    -> Advection time step (s)
+!               pressg  -> Grid row of surface pressure [Pa]
+!               tmin    -> minimum thresold value
+!               thlev   -> Layer thickness [m]
+!             roarow    -> Air density (kg/m3)
+!              rhsize   -> Wet radius
+!              fland    -> Landuse
+!               dshj    -> Sigma difference of bottom and top of a layer
+!               iae1    -> Index of first aerosol in trace substance list (ntr)
+!               pdiff   -> diffusion coefficient
+!                 luc   -> landuse categories
+!                  ns   -> Seasonal periods in Robichaud Dev. vel. scheme
+!                 pllp  -> Parameter for dry deposition velocity of PM
+!                 gamma -> Parameter for dry deposition velocity of PM
+!                  aest -> Parameter for dry deposition velocity of PM
+!
+!             OUT
+!              RTDRY    -> deposition tendencies for each layer
+!              DRYFLX   -> Dry deposition flux
+!
+!             IN/OUT
+!              XROW     -> tracer concentration
+!              PDEPV    -> gravitational settling velocity
+!              GDREM    -> total removal tendency
+!
+!============================================================================
+
+   subroutine mach_cam_drydepo (ilev, lev, F_chm_ni, il1, il2, seasn, ra, usi, throw, isize, &
+                                ntp, ntr, adt2, pressg, tmin, thlev, roarow, rhsize,    &
+                                fland, XROW, PDEPV, RTDRY, dshj, GDREM, iae1, pdiff,    &
+                                luc, ns, pllp, gamma, aest, DRYFLX, aerosize, rhorow, oldtop, oldbot)
+
+
+   use mach_cam_headers_mod, only: mach_cam_drypar, mach_cam_tenddist
+   use chm_utils_mod
+   use chm_consphychm_mod
+   use chm_nml_mod, only: chm_intrsec_ndiv, chm_intrsec_ver
+
+
+   implicit none
+   integer, intent(in) :: ilev, lev, F_chm_ni, isize, ntp, ntr, luc, ns
+   integer, intent(in) :: il1, il2, iae1
+   real, intent(in)    :: adt2, tmin
+   real, intent(in),  dimension(F_chm_ni, ilev)        :: thlev, dshj, roarow
+   real, intent(in),  dimension(F_chm_ni, ilev)        :: rhorow, oldtop, oldbot
+   real, intent(in),  dimension(F_chm_ni, lev)         :: throw
+   real, intent(in),  dimension(F_chm_ni, luc)         :: fland, ra, usi
+   real, intent(in),  dimension(F_chm_ni, ilev, isize) :: rhsize, pdiff
+   real, intent(in),  dimension(F_chm_ni)              :: pressg, seasn
+   real, intent(in),  dimension(luc, ns)               :: pllp
+   real, intent(in),  dimension(luc)                   :: aest, gamma
+   real, intent(in),  dimension(2, isize)              :: aerosize
+
+
+!SLG - Sub r
+   real, allocatable, dimension(:,:,:)                 :: xrow_n
+   real, allocatable, dimension(:)                     :: r_n, dvn
+   integer                                             :: ntr_n, nbnd
+   integer :: jk, jsub, k, ik, il
+    
+   real , allocatable, dimension(:, :)            :: rn
+
+
+!SLG - Sub r
+
+
+   real, intent(out), dimension(F_chm_ni, ntp)         :: dryflx
+   real, intent(out), dimension(F_chm_ni, ilev, ntr)   :: rtdry
+   real, intent(inout)                            :: gdrem(F_chm_ni, ntr, 3)
+   real, intent(inout)                            :: pdepv(F_chm_ni, ilev, isize)
+   real, intent(inout)                            :: xrow(F_chm_ni, lev, ntr)
+
+!  local variables
+   integer :: mm, i, j, l, n, np, nn
+   real :: rndiv, dNdr, dMdrdt, dr_orig, dr_new,  dMdr, sqrt2pi
+   real :: dp1, dm1, dnp1_dlogd, dnm1_dlogd, dvp1_dlogd, dvm1_dlogd, vsum, suma
+   real :: xsum
+   real*8 :: massdepo(F_chm_ni,ntp*isize)
+
+   logical local_dbg
+! Parameters for trimodal distribution:
+   real, dimension(3)                      :: nnn, dpm, lsig
+!
+!  Parameters for assumed particle size distribution (Seinfeld and Pandis, 2006,
+!  after Jaenicke, 1993, urban aerosol distribution):
+!
+     data nnn / 9.93E4, 1.11E3, 3.64E4 /
+     data dpm / 0.013, 0.014, 0.050 /
+     data lsig / 0.245, 0.666, 0.337 /
+
+   local_dbg = (.false. .or. global_debug)
+!
+   sqrt2pi = sqrt(2.*acos(-1.0))
+
+   nbnd = isize * chm_intrsec_ndiv
+   ntr_n = ntp * nbnd
+!
+!
+   allocate(xrow_n(F_chm_ni, lev, ntr_n))
+   allocate(r_n(nbnd))
+   allocate(rn(2, nbnd))
+   allocate(dvn(nbnd))
+!
+   rtdry = 0.0
+   xrow_n = 0.0
+!
+!  Commence subdivision of original bins:
+   rndiv = real(chm_intrsec_ndiv)
+
+!  Determine bin boundaries of the subdivided distribution:
+   rn = 0.0
+
+   if (chm_intrsec_ver == 1 .or. chm_intrsec_ver == 4) then
+      do i = 1, isize
+         do j = 1, chm_intrsec_ndiv
+            rn(1, (i - 1) * chm_intrsec_ndiv + j) = aerosize(1, i) + float(j - 1) * &
+                                    (aerosize(2, i) - aerosize(1, i)) / rndiv
+         end do
+      end do
+   else if(chm_intrsec_ver == 2 .or. chm_intrsec_ver == 3 .or. &
+           chm_intrsec_ver == 5 .or. chm_intrsec_ver == 6) then
+      do i = 1, isize
+         do j = 1, chm_intrsec_ndiv
+            rn(1, (i-1) * chm_intrsec_ndiv + j) = exp(log(aerosize(1, i)) + &
+              float(j-1) * (log(aerosize(2, i)) - log(aerosize(1, i))) / rndiv)
+         end do
+      end do
+   end if
+
+   do i = 2, nbnd
+       rn(2, i - 1) = rn(1, i)
+   end do
+   rn(2, nbnd) = aerosize(2, isize)
+   do i=1, nbnd
+      r_n(i) = (rn(1, i) + rn(2, i)) * 0.5
+   end do
+!
+   if(chm_intrsec_ver == 1 .or. chm_intrsec_ver == 4) then
+!  version 1 of possible distribution of aeronum, rtcond, xrow:
+!  Use delta(quantity) / delta(radius) and the leftmost boundary value of
+!  the quantity being zero to divide up quantities:
+
+!  Assign particle mass:
+      do k = 1, isize
+         dr_orig = (aerosize(2, k) - aerosize(1, k))
+         do np = 1, ntp
+            ik = (np - 1) * isize + k + iae1 - 1
+            do il = 1, ilev
+               do i = il1, il2
+                  dMdr   = xrow(i, il + 1, ik) / dr_orig
+                  do j = 1, chm_intrsec_ndiv
+                     jsub = (k - 1) * chm_intrsec_ndiv + j
+                     jk = (np - 1) * nbnd + jsub
+                     dr_new = rn(2, jsub) - rn(1, jsub)
+                     xrow_n(i, il+1 , jk) = dMdr * dr_new
+                  end do
+               end do
+            end do
+         end do
+      end do
+  else if(chm_intrsec_ver == 2 .or. chm_intrsec_ver == 5) then
+!  version 2 of possible distribution of aeronum, rtcond, xrow:
+!  Use delta(quantity) / delta(ln radius) and the leftmost boundary value of
+!  the quantity being zero to divide up quantities:
+
+!  Assign particle mass:
+      do k = 1, isize
+         dr_orig = log(aerosize(2, k) / aerosize(1, k))
+         do np = 1, ntp
+            ik = (np - 1) * isize + k + iae1 - 1
+            do il = 1, ilev
+               do i = il1, il2
+                  dMdr   = xrow(i, il + 1, ik) / dr_orig
+                  do j = 1, chm_intrsec_ndiv
+                     jsub = (k - 1) * chm_intrsec_ndiv + j
+                     jk = (np - 1) * isize * chm_intrsec_ndiv + jsub
+                     dr_new = log(rn(2, jsub) / rn(1, jsub))
+                     xrow_n(i, il+1 , jk) = dMdr * dr_new
+                  end do
+               end do
+            end do
+         end do
+      end do
+  else if(chm_intrsec_ver == 3 .or. chm_intrsec_ver == 6) then
+!  xrow is redistributed according to urban volume distribution
+!  of Jaenicke, 1993, quoted in Seinfeld and Pandis 2006 pages 370-371.
+!  Use delta(quantity) / delta(ln radius) and the leftmost boundary value of
+!  the quantity being zero to divide up quantities:
+
+!  Assign particle mass:
+
+!  First, define particle number and volume distribution according
+!  to Jaenicke, 1993:
+      do i = 1, nbnd
+         dp1 = rn(2, i) * 2.0 * 1.E6  ! diameter in um
+         dm1 = rn(1, i) * 2.0 * 1.E6  ! diameter in um
+         dnp1_dlogd = 0.0
+         dnm1_dlogd = 0.0
+! construct trimodal dN/dlogD value at boundary radii of sub-bin:
+         do j = 1, 3
+            dnp1_dlogd = dnp1_dlogd + nnn(j) / (sqrt2pi * lsig(j)) &
+                        * exp(-1.0 * (log10(dp1) - log10(dpm(j)))**2 &
+                        / (2. * lsig(j)**2) )
+            dnm1_dlogd = dnm1_dlogd + nnn(j) / (sqrt2pi * lsig(j)) &
+                        * exp(-1.0 * (log10(dm1) - log10(dpm(j)))**2 &
+                        / (2.0 * lsig(j)**2) )
+         end do
+! construct corresponding dV/dlogD value at boundary radii of sub-bin:
+         dvp1_dlogd = dnp1_dlogd * 4.0 / 3.0 * acos(-1.0) * (dp1 * 0.5)**3
+         dvm1_dlogd = dnm1_dlogd * 4.0 / 3.0 * acos(-1.0) * (dm1 * 0.5)**3
+! integrate between these values :  volume = area under curve. Rectangle rule used:
+         dvn(i) = (dvp1_dlogd + dvm1_dlogd) * (log10(dp1) - log10(dm1))
+      end do
+
+!  The dvn array contains a "typical urban" trimodal volume (i.e. mass) distribution.
+!  The sub-bin boundaries rn(2, i) to rn(1, i) have been constructed to fall within the
+!  original bin boundaries.  The next step determines scaling factors to use
+!  within the bin, based on the relative amount of sub-bin volume within the bin:
+      do k=1, isize
+         vsum = 0.
+         do j=1, chm_intrsec_ndiv
+            jsub = (k - 1) * chm_intrsec_ndiv + j
+            vsum = vsum + dvn(jsub)
+         end do
+         do j=1, chm_intrsec_ndiv
+            jsub = (k - 1) * chm_intrsec_ndiv + j
+            dvn(jsub) = dvn(jsub) / vsum
+         end do
+      end do
+
+!  At this point, the array dvn contains scaling factors
+!  that can be used to redistribute the bin mass to
+!  sub-bins.  Within the bin, the trimodal distribution
+!  will be used, but discontinuities may occur at the
+!  sub-bin borders.
+      do k = 1, isize
+         do np = 1, ntp
+            ik = (np - 1) * isize + k + iae1 - 1
+            do il = 1, ilev
+               do i = il1, il2
+                  do j = 1, chm_intrsec_ndiv
+                     jsub = (k - 1)*chm_intrsec_ndiv + j
+                     jk = (np - 1) * isize * chm_intrsec_ndiv + jsub
+                     xrow_n(i, il+1 , jk) = xrow(i, il + 1, ik) * dvn(jsub)
+                  end do
+               end do
+            end do
+         end do
+      end do
+   end if
+!   
+!  xrow_n now contains the subdivided particle mass, and r_n contains the subdivided radius
+!  array.
+!
+   call mach_cam_drypar(lev, ilev, F_chm_ni, isize, ntp, il1, il2, ntr, adt2, iae1,    &
+                        luc, ns, throw, thlev, roarow, pdiff, rhsize, fland,           &
+                        xrow, Pdepv, RTDRY, seasn, ra, usi, pllp, aest, gamma,         &
+                        aerosize, xrow_n, r_n,nbnd, ntr_n)
+!
+
+   call mach_cam_tenddist(RTDRY, pdepv, adt2, thlev, 1, il1, il2, F_chm_ni, ilev, ntr, &
+                          dshj, pressg, GDREM, isize, ntp, iae1, lev, xrow, rhorow, &
+                          oldtop, oldbot, massdepo)
+!  Sum up the deposited mass flux from the revised mach_cam_tenddist:
+   do n = 1, isize
+     do nn = 1,ntp
+       np = isize*(nn -1) + n
+       do i = il1,il2
+         dryflx(i,nn) = dryflx(i,nn) + real(massdepo(i,np))
+       end do
+     end do
+   end do
+
+   deallocate(xrow_n)
+   deallocate(r_n)
+   deallocate(rn)
+   deallocate(dvn)
+
+   return
+end

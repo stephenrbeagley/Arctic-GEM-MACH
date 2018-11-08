@@ -1,0 +1,1149 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_aerocld.ftn90
+! Creation       : S. Gong, W. Gong, S. Menard, V. Bouchet,  P. Huang, C. Stroud,
+!                  S. Gravel and B. Pabla for GEM-MACH, June 2008
+! Description    : Aerosol-cloud interaction module:
+!                  (1) Sub-grid vertical velocity distribution.
+!                  (2) Aerosol activation and cloud spectrum calculation.
+!                  (3) Cloud chemistry of sulphate oxidation
+!
+! Extra info     : - First version created by S. Gong Jan 11 1998 for CAM
+!                  - The in-cloud removal due to rain-out and production due
+!                    to evporation of aerosols and gases are parameterized
+!                    as the same fraction of cloud water is removed or
+!                    produced in a cloud module. (S. Gong Dec 02 1998)
+!                  - Implementation of the vectorize version of the ADOM
+!                    stratus aqueous phase chemistry solver. This solver
+!                    is vectorized along the 3 directions (X-Y-Z). This
+!                    version of the solver is running one order of magnitude
+!                    faster than the original ADOM scalar code. Because CAM
+!                    is run by vertical slices (X-Z) along the Y coordinate,
+!                    it is not possible at the moment to use the full potential
+!                    of this solver. The latitudinal loop (Y) will be
+!                    a scalar loop. (W. Gong, and S. Menard, Jun 01, 2000)
+!                  - Adding mass redistribution and number diagnosis after
+!                    the cloud chemistry process. (W. Gong, Nov 2000)
+!                  - Implementing wet flux (including cloud-to-rain transfer
+!                     and part of evaporation) (W. Gong, Apr 2001)
+!                  - Implementing changes due to heterogeneous chemistry
+!                    (V. Bouchet, Aug 2001)
+!                  - Split aerosol OC into primary and secondary components
+!                    (C. Stroud, Jul 2004) components !cs>>>
+!                  - Added EC and CM for evaporation (W. Gong, Jul 2005)
+!                  - Corrected molecular weight assignment for EC and CR
+!                    (M. Moran, Sept 2005)
+!
+!
+!**********************************************************************
+!Author Sylvain Menard (AES/contractor)          August, 2000.
+!       Wanmin Gong    (ARQI/AES)
+!
+!
+!Revision v1.0 -  Sylvain Menard - August, 2000.
+!       QI Model Application Team (MAT)
+!
+!Language
+!       Fortran 77
+!
+!Object
+!
+!Arguments and more:
+!
+!_______________________________________________________________________
+!          |                                      | T |           |    |
+!  NAME    |          DESCRIPTION                 | Y |DIMENSIONS |IN/ |
+!          |                                      | P |           |OUT |
+!          |                                      | E |           |    |
+!----------------------------------------------------------------------
+! adt2     | Advection time step (s)              | R |           | I  |
+! throw    | Temperature (K)                      | R |F_chm_ni, ilev  | I  |
+! xrow     | Tracer array (kg/kg) with moon level | R |F_chm_ni, ilev, |    |
+!          |                                      |   |ntr        |    |
+! aeroname | Name of each aerosol type            |   |           |    |
+! lev      | ilev + 1                             | I | scalar    | I  |
+! ilev     | No of vertical levels                | I | scalar    | I  |
+! F_chm_ni | number of longitude grid points      | I | scalar    | I  |
+! il1      | minimum index for F_chm_ni           | I | scalar    | I  |
+! il2      | maximum index for F_chm_ni           | I | scalar    |    |
+! pressg   | Grid row of surface pressure [Pa]    | R | F_chm_ni       |    |
+! radcld   | Mean radius of cloud droplets (um)   |   |           |    |
+! pxnew    | General Working Array                | R | F_chm_ni, ilev |    |
+!          |                                      |   | ntr       |    |
+! rhsize   | Unactivated ambient aerosol wet      | R | F_chm_ni, ilev,|    |
+!          | Radius  [m] (cf. CLSIZE)             |   | isize     |    |
+! rhop     | Bin-specific wet aerosol density     | R | F_chm_ni, ilev,|    |
+!          |                                      |   | isize     |    |
+! aeronum  | Number-Concentration of Aerosol      | R | F_chm_ni, ilev |    |
+!          |                                      |   | isize     |    |
+! ntr      | Number of tracers                    | I | scalar    | I  |
+! ntp      | Number of aerosol species            | I | scalar    | I  |
+! isize    | Number of size bins                  | I | scalar    | I  |
+! thlev    | Layer thickness [m]                  | R | F_chm_ni, ilev |    |
+! roarow   | Air Density  [kg/m3]                 | R | F_chm_ni, ilev |    |
+! icdn     | pointex location of ccn              | I | scalar    | I  |
+! zmlwc    | Cloud liquid water [kg/kg]           | R |F_chm_ni, ilev,2|    |
+! nsub     | No. of subgrid for caculating        | I | scalar    | I  |
+! ws       | 0                                    |   |           |    |
+! modv     | Wind speed [m/s]                     | R | F_chm_ni, ilev |    |
+! wrow     | Model vertical wind speed            | R | F_chm_ni, ilev |    |
+! epsi     | Energy dissipation rate              | R | F_chm_ni, ilev |    |
+! f        | Random Noise                         |Com| F_chm_ni, ilev,|    |
+!          |                                      |   | 2*nsub    |    |
+! f1       | working array                        | R | F_chm_ni, ilev,|    |
+!          |                                      |   | nsub      |    |
+! f2       | working array                        | R | F_chm_ni, ilev,|    |
+!          |                                      |   | nsub      |    |
+! tsrow    | First level temperature [K]          | R | F_chm_ni       |    |
+! jlat     | slice numer (1-71)                   | I | scalar    | I  |
+! cam      | Indentifier no. of cam with gas      | R | scalar    | I  |
+!          | chemistry of online/offline          |   |           |    |
+! rcrits   | Bin Number (+ Fraction Un-Activated) | R |F_chm_ni, ilev,2| I  |
+! qrow     | Specific humidity                    | R | F_chm_ni, lev  |    |
+! iso2     | pointer location of so2              | I | scalar    | I  |
+! clsize   | Activated ambient aerosol wet        | R |F_chm_ni, ilev, |    |
+!          | radius  [m] (cf. RHSIZE)             |   | isize     |    |
+! q_bin    | CWC per activated size bin (kg/m3)   | R |F_chm_ni, ilev, | I  |
+!          |                                      |   |isize      |    |
+! ih2o2    | pointer location of h2o2             | I | scalar    | I  |
+! irooh    | pointer location of h2o2             | I | scalar    | I  |
+! ihno3    | pointer location of hno3             | I | scalar    | I  |
+! inh3     | pointer location of nh3              | I | scalar    | I  |
+! idust    | pointer location of dust             | I | scalar    | I  |
+! io3      | pointer location of o3               | I | scalar    | I  |
+!----------------------------------------------------------------------
+
+subroutine mach_cam_aerocld (throw, XROW, aeroname, lev, ilev,  F_chm_ni, il1, il2,   &
+                             rhsize, rhop, AERONUM, ntr, ntp, isize, thlev,      &
+                             roarow, icdn, zmlwc, nsub, ws, wrow, jlat, cam,     &
+                             RCRITS, iso2, Q_BIN, ih2o2, irooh, ihno3, inh3,     &
+                             idust, io3, aerosize, rhop0, iae1, tcldcv, CLD_CHM, &
+                             adt2, FLUX, WETFLX, fctr, frevp, nswdep, TS2, TS4,  &
+                             CLTS, CLS4, rhrow, kount, iso4, p3drow, rhorow,     &
+                             hetselec, chm_aqueous_s, nc_out)
+   use chm_utils_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use mach_aurams_headers_mod, only: mach_aurams_cwc_per_bin, mach_aurams_calpres
+   use mach_cam_headers_mod,   only: mach_cam_intrsec1_outer, mach_cam_aeroact
+   use mach_incld_headers_mod, only: mach_incld_main
+   use mach_hetv_headers_mod,  only: mach_hetv_hetchem
+   use mach_cam_utils_mod, only: maxnsg, maxns, maxnsp
+
+   implicit none
+   integer, intent(in) :: lev, ilev, F_chm_ni, il1, il2, ntr, ntp, isize, icdn, nsub, jlat
+   integer, intent(in) :: iso2, ih2o2, irooh, ihno3, inh3, idust, io3, iae1, nswdep, kount, iso4, hetselec
+   character (len = 8), intent(in) :: aeroname(ntp)
+   character (len = NMLKEY_LEN), intent(in)             :: chm_aqueous_s
+   real, intent(in)                :: cam, adt2
+   real, intent(in),    dimension(F_chm_ni, lev)             :: throw, rhrow
+   real, intent(in),    dimension(F_chm_ni, ilev)            :: thlev, roarow, wrow, fctr, p3drow, rhorow, frevp
+   real, intent(in),    dimension(F_chm_ni, ilev, 2)         :: zmlwc
+   real, intent(in),    dimension(F_chm_ni, ilev)            :: nc_out
+   real, intent(in),    dimension(F_chm_ni, ilev, isize)     :: rhsize, rhop
+   real, intent(in),    dimension(F_chm_ni, ilev, nsub)      :: ws
+   real, intent(in),    dimension(2, isize)                  :: aerosize
+   real, intent(in),    dimension(ntp)                  :: rhop0
+   real, intent(in),    dimension(F_chm_ni, ilev)            :: tcldcv
+   real, intent(out),   dimension(F_chm_ni, lev, ntr)        :: xrow
+   real, intent(out),   dimension(F_chm_ni, ilev, isize)     :: q_bin
+   real, intent(out),   dimension(F_chm_ni, ilev)            :: rcrits
+   real, intent(out),   dimension(F_chm_ni, ilev, 7)         :: cld_chm
+   real, intent(out),   dimension(F_chm_ni, nswdep, ilev, 2) :: flux
+   real, intent(out),   dimension(F_chm_ni, nswdep)          :: wetflx
+   real, intent(out),   dimension(F_chm_ni, ilev, 3, 2)      :: ts4, ts2
+   real, intent(out),   dimension(F_chm_ni, 4, 2)            :: clts, cls4
+   real, intent(inout), dimension(F_chm_ni, ilev, isize)     :: aeronum
+
+
+! local variables
+   integer  :: iswhet
+   integer  :: npts, nptsnz, is
+   integer  :: ivec, k, l, i, ii, ll, kk
+   integer  :: ibulk, inh4so4
+   integer  :: inh42so4, inh4no3
+   integer  :: ico2, ih2so4, iii
+   integer  :: ipos_sulfate, ipos_seasalt, ipos_omcarbon, ipos_pmcarbon
+   integer  :: ipos_nitrates, ipos_ammonium, ipos_soildust
+   integer  :: ipos_blcarbon, mm, n, jj, nt, nn
+   integer  :: nn1, nn2, nn3, nn4, nn5, nn6, nn7, nn8
+   integer  :: ipos_g(maxnsg)
+   integer  :: ipos_evapp(ntp)
+   real     :: rdi
+   real     :: qbin_min, tramass
+   real     :: mwt_aero(ntp)
+   real, dimension(F_chm_ni, ilev, ntr)   :: pxnew
+   real, dimension(F_chm_ni, ilev)        :: radcld
+   real, dimension(F_chm_ni, ilev, isize) :: clsize
+   real     :: orgmass, diff
+   real     :: mwt_so2, mwt_h2o2, mwt_rooh
+   real, dimension(F_chm_ni, ilev)                :: throw_new, pres, psacw, rcriter, rhrow_new, wk, wk2
+   real, dimension(F_chm_ni, ilev, ntr)           :: xrow_new
+   real, dimension(F_chm_ni, maxns, ilev)         :: gaz
+   real, dimension(F_chm_ni, maxnsp, ilev, isize) :: aerocon
+   real, dimension(F_chm_ni, 3, ilev, isize)      :: q_bin123
+   real, dimension(F_chm_ni, ilev, isize)         :: daqchm, rmass, totmass, rhopd
+   real, dimension(F_chm_ni, ilev, 2)             :: zmlwc_new
+   real, dimension(F_chm_ni, ilev, ntp)           :: tmass
+   real, dimension(F_chm_ni, ilev, nswdep)        :: evap
+   real, dimension(F_chm_ni, ilev, ntp, isize)    :: evapp, fbin_cld, plrain
+   real, dimension(F_chm_ni, ntp, isize)          :: wetflxp
+   real, dimension(F_chm_ni, ilev, 4)             :: totav, totap
+   real, dimension(F_chm_ni, 4)                   :: colav, colap
+   logical local_dbg
+
+   aerocon  = 0.0
+   clsize   = 0.0
+   colap    = 0.0
+   colav    = 0.0
+   daqchm   = 0.0
+   diff     = 0.0
+   evap     = 0.0
+   evapp    = 0.0
+   fbin_cld = 0.0
+   flux     = 0.0
+   gaz      = 0.0
+   orgmass  = 0.0
+   plrain   = 0.0
+   pres     = 0.0
+   psacw    = 0.0
+   pxnew    = 0.0
+   q_bin123 = 0.0
+   qbin_min = 0.0
+   radcld   = 0.0
+   rcriter  = 0.0
+   rdi      = 0.0
+   rhopd    = 0.0
+   rhrow_new = 0.0
+   rmass    = 0.0
+   throw_new = 0.0
+   tmass    = 0.0
+   totap    = 0.0
+   totav    = 0.0
+   totmass  = 0.0
+   tramass  = 0.0
+   wetflxp  = 0.0
+   wk       = 0.0
+   wk2      = 0.0
+   xrow_new = 0.0
+
+   local_dbg = (.false. .or. global_debug)
+
+!  MWT for so2, h2o2 and rooh
+   mwt_so2 = sm(sp_SO2 ) % mol_wt
+   mwt_h2o2 = sm(sp_H2O2) % mol_wt
+   mwt_rooh = sm(sp_ROOH) % mol_wt
+
+!  MWT for SO4, SS, OM, NO3, NH4, CR, EC, and PC
+   mwt_aero(1) = sm(sp_SU) % mol_wt
+   mwt_aero(2) = sm(sp_SS) % mol_wt
+   mwt_aero(3) = sm(sp_OC) % mol_wt
+   mwt_aero(4) = sm(sp_NI) % mol_wt
+   mwt_aero(5) = sm(sp_AM) % mol_wt
+   mwt_aero(6) = sm(sp_CM) % mol_wt
+   mwt_aero(7) = sm(sp_EC) % mol_wt
+   mwt_aero(8) = sm(sp_PC) % mol_wt
+
+   npts   = F_chm_ni
+   nptsnz = F_chm_ni * ilev
+
+!  initializing wetflx
+   do is = 1, nswdep
+      do ivec = 1, F_chm_ni
+         wetflx(ivec, is) = 0.0
+      end do
+   end do
+
+!  Adding correction for cloud fraction (using total cloud fraction)
+!  ( an arbitary number 1.e-10 is added to avoid overflow). WG, Feb, 2001
+
+   do k = 1, 2
+      do l = 1, ilev
+         do i = 1, F_chm_ni
+            if (zmlwc(i, l, k) > 0.0 .and. tcldcv(i, l) > 0.0) then
+               zmlwc_new(i, l, k) = zmlwc(i, l, k) / (tcldcv(i, l) + 1.0e-10)
+            else
+               zmlwc_new(i, l, k) = 0.0
+            end if
+         end do
+      end do
+   end do
+
+!  section 1 cloud sub-grid vertical velocity [quam scheme]
+   if (cam == 1.0 .or. cam == 10.0) go to 100
+
+!  section 2 aerosol activation and cloud spectrum [ghan scheme]
+100 call mach_cam_aeroact(ilev, F_chm_ni, il1, il2, RADCLD, PXNEW, rhsize, ntr, isize, rhop,   &
+                          icdn, wrow, XROW, ws, RCRITS, nsub, aeronum, zmlwc_new, roarow, &
+                          CLSIZE, cam, kount, jlat, nc_out)
+
+!  calculation of cwc per activated size bin
+   call tmg_start0 ( 93, 'mach_aurams_cwc_per_bin')
+   call mach_aurams_cwc_per_bin(Q_BIN, zmlwc_new, xrow, rcrits, aeronum, pxnew, roarow, icdn, &
+                                il1, il2, F_chm_ni, ilev, ntr, isize, kount, jlat)
+  call tmg_stop0 ( 93 )
+
+!  transfer q_bin into q_bin123
+   do ii = 1, F_chm_ni
+      do kk = 1, ilev
+         do ll = 1, isize
+            q_bin123(ii, 1, kk, ll) = q_bin(ii, kk, ll) ! water only
+            q_bin123(ii, 2, kk, ll) = 0.0               ! ice/snow not used
+            q_bin123(ii, 3, kk, ll) = 0.0               ! rainwater in air not used
+         end do
+      end do
+   end do
+
+!  Assign q_bin=0 if q_bin <1e-07 kg/m3.
+   qbin_min = 1e-07
+
+   do ll = 1, isize
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            if (q_bin123(ii, 1, kk, ll) <= qbin_min) q_bin123(ii, 1, kk, ll) = 0.0
+            if (q_bin123(ii, 2, kk, ll) <= qbin_min) q_bin123(ii, 2, kk, ll) = 0.0
+            if (q_bin123(ii, 3, kk, ll) <= qbin_min) q_bin123(ii, 3, kk, ll) = 0.0
+         end do
+      end do
+   end do
+
+!  removing moon level (not used in setup for chemistry)
+!  move throw (F_chm_ni, lev)     -> throw_new(F_chm_ni, ilev)
+!  move rhrow (F_chm_ni, lev)    -> rhrow_new(F_chm_ni, ilev)
+!  move xrow (F_chm_ni, lev, ntr)  -> xrow_new(F_chm_ni, ilev, ntr)
+
+   do kk = 1, ilev
+      do ii = 1, F_chm_ni
+         throw_new(ii, kk) = throw(ii, kk + 1)
+         rhrow_new(ii, kk) = rhrow(ii, kk + 1)
+         do ll = 1, ntr
+            xrow_new(ii, kk, ll) = xrow(ii, kk + 1, ll)
+         end do
+      end do
+   end do
+
+!  call remove_moon_level(THROW_new, XROW_new, THROW, XROW, F_chm_ni, ntr, lev, ilev)
+
+!  calculate pressure from throw_new and roarow
+   call mach_aurams_CALPRES(PRES, roarow, THROW_new, F_chm_ni, ilev)
+
+!  switch for bulk chemistry or bin resolved
+!  switch =1 for bulk chemistry
+!  switch =0 for bin resolved
+   ibulk = 1
+
+!  Gas  species direct adressing
+   inh4so4     = 0 ! dummy adress at position 0 in memory
+   inh42so4    = 0
+   inh4no3     = 0
+   ico2        = 0
+   ih2so4      = 0
+   ipos_g(1)   = iso2
+   ipos_g(2)   = ih2o2
+   ipos_g(3)   = irooh
+   ipos_g(4)   = ih2so4
+   ipos_g(5)   = inh4so4
+   ipos_g(6)   = inh42so4
+   ipos_g(7)   = ihno3
+   ipos_g(8)   = inh3
+   ipos_g(9)   = inh4no3
+   ipos_g(10)  = idust
+   ipos_g(11)  = io3
+   ipos_g(12)  = ico2
+
+!  aerosol components direct adressing
+   do iii = 1, ntp
+      if (aeroname(iii) == 'SULPHATE') ipos_sulfate  = iii
+      if (aeroname(iii) == 'SEA-SALT') ipos_seasalt  = iii
+      if (aeroname(iii) == 'OMCARBON') ipos_omcarbon = iii
+      if (aeroname(iii) == 'NITRATES') ipos_nitrates = iii
+      if (aeroname(iii) == 'AMMONIUM') ipos_ammonium = iii
+      if (aeroname(iii) == 'SOILDUST') ipos_soildust = iii
+      if (aeroname(iii) == 'BLCARBON') ipos_blcarbon = iii
+      if (aeroname(iii) == 'PMCARBON') ipos_pmcarbon = iii
+   end do
+!  Initialisation
+   do kk = 1, ilev
+      do ii = 1, F_chm_ni
+         psacw(ii, kk) = 0.0
+      end do
+   end do
+
+!  Aqueous phase chemistry is not executed if chm_aqueous_s == 'NIL'. So the following
+!  aqueous phase chemistry code is executed only if chm_aqueous_s == 'GONG'. See also
+!  mach_cam_main.ftn90
+!
+!  Start of aqueous phase chemistry
+
+   if (chm_aqueous_s == 'GONG') then
+
+!  xrow_new is transfer into g (47 gazeous species)
+      do ll = 1, maxns
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               gaz(ii, ll, kk) = xrow_new(ii, kk, ll)
+            end do
+         end do
+      end do
+
+!  xrow_new is transfered into aerocon (12 size bin)
+
+      do mm = 1, isize
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+         aerocon(ii, 1, kk, mm) = xrow_new(ii, kk, 49 + (ipos_sulfate  - 1) * isize + mm) !SO
+         aerocon(ii, 2, kk, mm) = xrow_new(ii, kk, 49 + (ipos_nitrates - 1) * isize + mm) !NO
+         aerocon(ii, 3, kk, mm) = xrow_new(ii, kk, 49 + (ipos_ammonium - 1) * isize + mm) !NH
+         aerocon(ii, 4, kk, mm) = xrow_new(ii, kk, 49 + (ipos_soildust - 1) * isize + mm) !CR
+         aerocon(ii, 5, kk, mm) = xrow_new(ii, kk, 49 + (ipos_seasalt  - 1) * isize + mm) !Sea Salt
+         aerocon(ii, 6, kk, mm) = xrow_new(ii, kk, 49 + (ipos_omcarbon - 1) * isize + mm) !Secondary carbon
+         aerocon(ii, 7, kk, mm) = xrow_new(ii, kk, 49 + (ipos_blcarbon - 1) * isize + mm) !Balck carbon
+         aerocon(ii, 8, kk, mm) = xrow_new(ii, kk, 49 + (ipos_pmcarbon - 1) * isize + mm) !Primary carbon
+            end do
+         end do
+      end do
+
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            rcriter(ii, kk) = rcrits(ii, kk)
+         end do
+      end do
+
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            do n = 1, 4
+               totav(ii, kk, n) = 0.0
+            end do
+            totav(ii, kk, 1) = totav(ii, kk, 1) + xrow_new(ii, kk, iso4)  * 96.0636 / 98.0795
+            totav(ii, kk, 2) = totav(ii, kk, 2) + xrow_new(ii, kk, ihno3) * 62.0049 / 63.0128
+            totav(ii, kk, 3) = totav(ii, kk, 3) + xrow_new(ii, kk, inh3)  * 18.0385 / 17.03056
+            do mm = 1, isize
+               totav(ii, kk, 1) = totav(ii, kk, 1) + xrow_new(ii, kk, 49 + (ipos_sulfate  - 1) * isize + mm)
+               totav(ii, kk, 2) = totav(ii, kk, 2) + xrow_new(ii, kk, 49 + (ipos_nitrates - 1) * isize + mm)
+               totav(ii, kk, 3) = totav(ii, kk, 3) + xrow_new(ii, kk, 49 + (ipos_ammonium - 1) * isize + mm)
+               totav(ii, kk, 4) = totav(ii, kk, 4) + xrow_new(ii, kk, 49 + (ipos_seasalt  - 1) * isize + mm)
+            end do
+         end do
+      end do
+
+!  Section 3  new aqueous phase chemistry solver to be run by slices.
+!  Sylvain M. july 2000.
+
+!  initializing ts2 ts4 and clts
+      do jj = 1, 2
+         do ll = 1, 3
+            do kk = 1, ilev
+               do ii = 1, F_chm_ni
+                  ts4(ii, kk, ll, jj) = 0.0
+                  ts2(ii, kk, ll, jj) = 0.0
+               end do
+            end do
+         end do
+         do ll = 1, 4
+            do ii = 1, F_chm_ni
+               clts(ii, ll, jj) = 0.0
+               cls4(ii, ll, jj) = 0.0
+            end do
+         end do
+      end do
+
+!  so2, so4 (bulk), column total s before in_cloud
+!  (moles/m3 and moles/m2, respectively)
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            ts2(ii, kk, 1, 1) = xrow(ii, kk + 1, iso2) * 1000.0 * roarow(ii, kk) / 64.0
+!  add gas phase h2so4
+            wk(ii, kk) = xrow(ii, kk + 1, iso4) * 1000.0 * roarow(ii, kk) / 98.0
+         end do
+      end do
+      do ll = iae1, iae1 + isize - 1
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               ts4(ii, kk, 1, 1) = ts4(ii, kk, 1, 1) + xrow(ii, kk + 1, ll) * 1000.0 * roarow(ii, kk) / 96.0
+            end do
+         end do
+      end do
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            clts(ii, 1, 1) = clts(ii, 1, 1) + (ts2(ii, kk, 1, 1) + ts4(ii, kk, 1, 1) + wk(ii, kk)) * thlev(ii, kk)
+            cls4(ii, 1, 1) = cls4(ii, 1, 1) + ts4(ii, kk, 1, 1) * thlev(ii, kk)
+         end do
+      end do
+
+      call tmg_start0 ( 13, 'mach_incld_main')
+      call mach_incld_main(gaz, aerocon, q_bin123, THROW_new, psacw, CLSIZE,         &
+                           RCRITER, PRES, npts, nptsnz, ipos_g, RADCLD, ibulk, jlat, &
+                           cld_chm, adt2, flux, fctr, nswdep, aeronum,               &
+                           ilev, isize)
+      call tmg_stop0 ( 13 )
+
+
+!  move back "g" to "Xrow_new"
+!  adjusted to take into account of cloud fraction - WG, Feb, 2001
+
+! transfer first 47 species into g
+      do ll = 1, maxns
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               xrow_new(ii, kk, ll) = (1.0 - tcldcv(ii, kk)) * xrow(ii, kk + 1, ll) +  &
+                                       tcldcv(ii, kk) * gaz(ii, ll, kk)
+!  transfer xrow_new back to xrow for gaseous species
+            xrow(ii, kk + 1, ll) = xrow_new(ii, kk, ll)
+            end do
+         end do
+      end do
+
+!  move back "aerocon" to "Xrow"
+!  Note that xrow (rather than xrow_new) now contains
+!  concentration in the cloudy portion of the grid - WG Feb 2001
+      do mm = 1, isize
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               xrow(ii, kk + 1, 49 + (ipos_sulfate  - 1) * isize + mm) = aerocon(ii, 1, kk, mm) ! so4
+               xrow(ii, kk + 1, 49 + (ipos_nitrates - 1) * isize + mm) = aerocon(ii, 2, kk, mm) ! no3
+               xrow(ii, kk + 1, 49 + (ipos_ammonium - 1) * isize + mm) = aerocon(ii, 3, kk, mm) ! nh4
+               xrow(ii, kk + 1, 49 + (ipos_seasalt  - 1) * isize + mm) = aerocon(ii, 5, kk, mm) ! seasalt
+               xrow(ii, kk + 1, 49 + (ipos_omcarbon - 1) * isize + mm) = aerocon(ii, 6, kk, mm) ! secondary carbon
+               xrow(ii, kk + 1, 49 + (ipos_pmcarbon - 1) * isize + mm) = aerocon(ii, 8, kk, mm) ! primary carbon
+               xrow(ii, kk + 1, 49 + (ipos_blcarbon - 1) * isize + mm) = aerocon(ii, 7, kk, mm) ! black carbon
+               xrow(ii, kk + 1, 49 + (ipos_soildust - 1) * isize + mm) = aerocon(ii, 4, kk, mm) ! crustal material
+            end do
+         end do
+      end do
+
+!  SO2, SO4 (bulk), and column total S after IN_cloud
+!  (moles/m3 and moles/m2, respectively)
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            ts2(ii, kk, 1, 2) = xrow(ii, kk + 1, iso2) * 1000.0 * roarow(ii, kk) / 64.0
+            wk(ii, kk) = ts2(ii, kk, 1, 2) + (flux(ii, 1, kk, 1) + flux(ii, 4, kk, 1)) * tcldcv(ii, kk) &
+                        + xrow_new(ii, kk, iso4) * 1000.0 * roarow(ii, kk) / 98.0
+         end do
+      end do
+      do ll = iae1, iae1 + isize - 1
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               ts4(ii, kk, 1, 2) = ts4(ii, kk, 1, 2) + (xrow_new(ii, kk, ll) * (1.0 - tcldcv(ii, kk)) +  &
+                                 tcldcv(ii, kk) * xrow(ii, kk + 1, ll)) * 1000.0 * roarow(ii, kk) / 96.0
+            end do
+         end do
+      end do
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            clts(ii, 1, 2) = clts(ii, 1, 2) + (wk(ii, kk) + ts4(ii, kk, 1, 2)) * thlev(ii, kk)
+            cls4(ii, 1, 2) = cls4(ii, 1, 2) + ts4(ii, kk, 1, 2) * thlev(ii, kk)
+         end do
+      end do
+
+!  Calculating the net change in aerosol mass needed for rebinning
+!  making use of XROW before it is updated in ADD_MOON_LEVEL.
+      do mm = 1, isize
+         nn1 = (iae1 - 1) + (ipos_sulfate - 1) * isize + mm
+         nn2 = (iae1 - 1) + (ipos_nitrates - 1) * isize + mm
+         nn3 = (iae1 - 1) + (ipos_ammonium - 1) * isize + mm
+         nn5 = (iae1 - 1) + (ipos_seasalt - 1) * isize + mm
+         nn6 = (iae1 - 1) + (ipos_omcarbon - 1) * isize + mm
+         nn4 = (iae1 - 1) + (ipos_soildust - 1) * isize + mm
+         nn7 = (iae1 - 1) + (ipos_blcarbon - 1) * isize + mm
+         nn8 = (iae1 - 1) + (ipos_pmcarbon - 1) * isize + mm
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               daqchm(ii, kk, mm) = xrow(ii, kk + 1, nn1) - xrow_new(ii, kk, nn1) &
+                                 + xrow(ii, kk + 1, nn2) - xrow_new(ii, kk, nn2) &
+                                 + xrow(ii, kk + 1, nn3) - xrow_new(ii, kk, nn3) &
+                                 + xrow(ii, kk + 1, nn4) - xrow_new(ii, kk, nn4) &
+                                 + xrow(ii, kk + 1, nn5) - xrow_new(ii, kk, nn5) &
+                                 + xrow(ii, kk + 1, nn6) - xrow_new(ii, kk, nn6) &
+                                 + xrow(ii, kk + 1, nn7) - xrow_new(ii, kk, nn7) &
+                                 + xrow(ii, kk + 1, nn8) - xrow_new(ii, kk, nn8)
+            end do
+         end do
+      end do
+
+!  Calculate dry density before cloud chemistry
+      rhopd = 0.0
+      totmass = 0.0
+      do nt = 1, ntp
+         do mm = 1, isize
+            nn = (iae1 - 1) + (nt - 1) * isize + mm
+            do kk = 1, ilev
+               do ii = 1, F_chm_ni
+                  tramass = max(1.0e-33, xrow_new(ii, kk, nn))
+                  totmass(ii, kk, mm) = totmass(ii, kk, mm) + tramass
+                  rhopd(ii, kk, mm) = rhopd(ii, kk, mm) + tramass / rhop0(nt)
+               end do
+            end do
+         end do
+      end do
+      do mm = 1, isize
+         rdi = 0.5 * (aerosize(1, mm) + aerosize(2, mm))
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               rhopd(ii, kk, mm) = totmass(ii, kk, mm) / rhopd(ii, kk, mm)
+               rmass(ii, kk, mm) = 4.189 * rdi * rdi * rdi * rhopd(ii, kk, mm)
+            end do
+         end do
+      end do
+
+!  mass redistribution and number diagnosis
+      call tmg_start0 ( 14, 'mach_cam_intrsec1 - 1st call from aerocld')
+      call mach_cam_intrsec1_outer(lev, ilev, F_chm_ni, il1, il2, XROW, ntr, ntp, iae1, &
+                     isize, rhopd, daqchm, aerosize, q_bin, rcrits, 1)
+      call tmg_stop0 ( 14 )
+
+!  In-cloud size distribution ratios (used to distribute
+!  evaporated bulk aerosol mass to bins).  WG, May 2001
+      do nt = 1, ntp
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               tmass(ii, kk, nt) = 0.0
+            end do
+         end do
+      end do
+      do nt = 1, ntp
+         do mm = 1, isize
+            nn = (iae1 - 1) + (nt - 1) * isize + mm
+            do kk = 1, ilev
+               do ii = 1, F_chm_ni
+                  tramass = max(0.0, xrow(ii, kk + 1, nn))
+                  tmass(ii, kk, nt) = tmass(ii, kk, nt) + tramass
+               end do
+            end do
+         end do
+         do mm = 1, isize
+            nn = (iae1 - 1) + (nt - 1) * isize + mm
+            do kk = 1, ilev
+               do ii = 1, F_chm_ni
+                  fbin_cld(ii, kk, nt, mm) = max(0.0, xrow(ii, kk + 1, nn) / (tmass(ii, kk, nt) + 1.0e-35))
+               end do
+            end do
+         end do
+      end do
+
+!  Adjust for cloud fraction - WG, Feb. 2001
+      do mm = 1, isize
+         nn1 = (iae1 - 1) + (ipos_sulfate  - 1) * isize + mm
+         nn2 = (iae1 - 1) + (ipos_nitrates - 1) * isize + mm
+         nn3 = (iae1 - 1) + (ipos_ammonium - 1) * isize + mm
+         nn5 = (iae1 - 1) + (ipos_seasalt  - 1) * isize + mm
+         nn6 = (iae1 - 1) + (ipos_omcarbon - 1) * isize + mm
+         nn8 = (iae1 - 1) + (ipos_pmcarbon - 1) * isize + mm
+         nn4 = (iae1 - 1) + (ipos_soildust - 1) * isize + mm
+         nn7 = (iae1 - 1) + (ipos_blcarbon - 1) * isize + mm
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               xrow(ii, kk + 1, nn1) = tcldcv(ii, kk) * xrow(ii, kk + 1, nn1) +  &
+                                    (1.0 - tcldcv(ii, kk)) * xrow_new(ii, kk, nn1)  !so4
+               xrow(ii, kk + 1, nn2) = tcldcv(ii, kk) * xrow(ii, kk + 1, nn2) +  &
+                                    (1.0 - tcldcv(ii, kk)) * xrow_new(ii, kk, nn2)  !no3
+               xrow(ii, kk + 1, nn3) = tcldcv(ii, kk) * xrow(ii, kk + 1, nn3) +  &
+                                    (1.0 - tcldcv(ii, kk)) * xrow_new(ii, kk, nn3)  !nh4
+               xrow(ii, kk + 1, nn5) = tcldcv(ii, kk) * xrow(ii, kk + 1, nn5) +  &
+                                    (1.0 - tcldcv(ii, kk)) * xrow_new(ii, kk, nn5)  !sea salt
+               xrow(ii, kk + 1, nn6) = tcldcv(ii, kk) * xrow(ii, kk + 1, nn6) +  &
+                                    (1.0 - tcldcv(ii, kk)) * xrow_new(ii, kk, nn6)  !secondary carbon
+               xrow(ii, kk + 1, nn8) = tcldcv(ii, kk) * xrow(ii, kk + 1, nn8) +  &
+                                    (1.0 - tcldcv(ii, kk)) * xrow_new(ii, kk, nn8)  !primary carbon
+               xrow(ii, kk + 1, nn4) = tcldcv(ii, kk) * xrow(ii, kk + 1, nn4) +  &
+                                    (1.0 - tcldcv(ii, kk)) * xrow_new(ii, kk, nn4)  !cr
+               xrow(ii, kk + 1, nn7) = tcldcv(ii, kk) * xrow(ii, kk + 1, nn7) +  &
+                                    (1.0 - tcldcv(ii, kk)) * xrow_new(ii, kk, nn7)  !black carbon
+            end do
+         end do
+      end do
+
+!  SO2, SO4 (bulk) and column total S before evaporation
+!  (moles/m3 and moles/m2, respectively)
+      do ll = iae1, iae1 + isize - 1
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               ts4(ii, kk, 2, 1) = ts4(ii, kk, 2, 1) + xrow(ii, kk + 1, ll) * 1000.0 * roarow(ii, kk) / 96.0
+            end do
+         end do
+      end do
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            ts2(ii, kk, 2, 1) = xrow(ii, kk + 1, iso2) * 1000.0 * roarow(ii, kk) / 64.0
+            wk(ii, kk) = ts2(ii, kk, 2, 1) + flux(ii, 1, kk, 1) * tcldcv(ii, kk)
+            wk2(ii, kk) = ts4(ii, kk, 2, 1) + flux(ii, 4, kk, 1) * tcldcv(ii, kk) &
+                        + xrow(ii, kk + 1, iso4) * 1000.0 * roarow(ii, kk) / 98.0
+         end do
+      end do
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            clts(ii, 2, 1) = clts(ii, 2, 1) + (wk(ii, kk) + wk2(ii, kk)) * thlev(ii, kk)
+            cls4(ii, 2, 1) = cls4(ii, 2, 1) + ts4(ii, kk, 2, 1) * thlev(ii, kk)
+         end do
+      end do
+
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            do n = 1, 4
+               totap(ii, kk, n) = 0.0
+            end do
+            totap(ii, kk, 1) = totap(ii, kk, 1) + xrow(ii, kk + 1, iso4) * 96.0636 / 98.0795
+            totap(ii, kk, 2) = totap(ii, kk, 2) + xrow(ii, kk + 1, ihno3) * 62.0049 / 63.0128
+            totap(ii, kk, 3) = totap(ii, kk, 3) + xrow(ii, kk + 1, inh3) * 18.0385 / 17.03056
+            do mm = 1, isize
+               totap(ii, kk, 1) = totap(ii, kk, 1) + xrow(ii, kk + 1, 49 + (ipos_sulfate  - 1) * isize + mm)
+               totap(ii, kk, 2) = totap(ii, kk, 2) + xrow(ii, kk + 1, 49 + (ipos_nitrates - 1) * isize + mm)
+               totap(ii, kk, 3) = totap(ii, kk, 3) + xrow(ii, kk + 1, 49 + (ipos_ammonium - 1) * isize + mm)
+               totap(ii, kk, 4) = totap(ii, kk, 4) + xrow(ii, kk + 1, 49 + (ipos_seasalt  - 1) * isize + mm)
+            end do
+         end do
+      end do
+      do ii = 1, F_chm_ni
+         do n = 1, 4
+            colav(ii, n) = 0.0
+            do kk = 1, ilev
+               colav(ii, n) = colav(ii, n) + totav(ii, kk, n)
+            end do
+         end do
+      end do
+
+!  wet flux from cloud-to-rain (moles per m2)
+!  add evaporation (note k=1 at model top) - WG, May 2001
+   do is = 1, nswdep
+         do ivec = 1, F_chm_ni
+            wetflx(ivec, is) = 0.0
+         end do
+      end do
+
+      do is = 1, nswdep
+         do k = 1, ilev
+            do ivec = 1, F_chm_ni
+               wetflx(ivec, is) = wetflx(ivec, is) + flux(ivec, is, k, 1) *  &
+                                 tcldcv(ivec, k) * thlev(ivec, k)
+!  evap in moles per m3:
+               evap(ivec, k, is) = wetflx(ivec, is) * frevp(ivec, k) / thlev(ivec, k)
+               wetflx(ivec, is) = wetflx(ivec, is) * (1.0 - frevp(ivec, k))
+            end do
+         end do
+      end do
+
+!  evaporation of particles and size distribution
+      ipos_evapp(1) = 4          ! sulfates
+      ipos_evapp(2) = 10         ! sea salt
+      ipos_evapp(3) = 11         ! secondary organic carbon
+      ipos_evapp(4) = 5          ! nitrate
+      ipos_evapp(5) = 6          ! ammonium
+      ipos_evapp(6) = 13         ! soil dust
+      ipos_evapp(7) = 14         ! elemental carbon
+      ipos_evapp(8) = 15         ! primary carbon
+
+      do nt = 1, ntp
+         nn = ipos_evapp(nt)
+         do mm = 1, isize
+            do k = 1, ilev
+               do ivec = 1, F_chm_ni
+                  evapp(ivec, k, nt, mm) = evap(ivec, k, nn) * fbin_cld(ivec, k, nt, mm)
+               end do
+            end do
+         end do
+      end do
+
+!  update gas (so2, h2o2, rooh) and particles (all in kg/kg) after evaporation
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            xrow(ii, kk + 1, iso2) = xrow(ii, kk + 1, iso2) + evap(ii, kk, 1)   &
+                                 * mwt_so2 / roarow(ii, kk) / 1000.0
+            xrow(ii, kk + 1, ih2o2) = xrow(ii, kk + 1, ih2o2) + evap(ii, kk, 2) &
+                                 * mwt_h2o2 / roarow(ii, kk) / 1000.0
+            xrow(ii, kk + 1, irooh) = xrow(ii, kk + 1, irooh) + evap(ii, kk, 3) &
+                                 * mwt_rooh / roarow(ii, kk) / 1000.0
+         end do
+      end do
+      do nt = 1, ntp
+         do mm = 1, isize
+            nn = (iae1 - 1) + (nt - 1) * isize + mm
+            do kk = 1, ilev
+               do ii = 1, F_chm_ni
+                  xrow(ii, kk + 1, nn) = xrow(ii, kk + 1, nn) + evapp(ii, kk, nt, mm) &
+                                       * mwt_aero(nt) / roarow(ii, kk) / 1000.0
+               end do
+            end do
+         end do
+      end do
+
+!  SO2, SO4 (bulk) and column total S after evaporation (moles/m3 and moles/m2, respectively)
+      do ii = 1, F_chm_ni
+         clts(ii, 2, 2) = wetflx(ii, 1) + wetflx(ii, 4)
+      end do
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            ts2(ii, kk, 2, 2) = xrow(ii, kk + 1, iso2) * 1000.0 * roarow(ii, kk) / 64.0
+            wk(ii, kk) = xrow(ii, kk + 1, iso4) * 1000.0 * roarow(ii, kk) / 98.0
+         end do
+      end do
+      do ll = iae1, iae1 + isize - 1
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               ts4(ii, kk, 2, 2) = ts4(ii, kk, 2, 2) + xrow(ii, kk + 1, ll) * 1000.0 * roarow(ii, kk) / 96.0
+            end do
+         end do
+      end do
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            clts(ii, 2, 2) = clts(ii, 2, 2) + (ts2(ii, kk, 2, 2) + ts4(ii, kk, 2, 2) + wk(ii, kk)) &
+                           * thlev(ii, kk)
+            cls4(ii, 2, 2) = cls4(ii, 2, 2) + ts4(ii, kk, 2, 2) * thlev(ii, kk)
+         end do
+      end do
+
+!  update RHOP and AERONUM
+      rhopd = 0.0
+      totmass = 0.0
+      do nt = 1, ntp
+         do mm = 1, isize
+            nn = (iae1 - 1) + (nt - 1) * isize + mm
+            do kk = 1, ilev
+               do ii = 1, F_chm_ni
+                  tramass = max(1.0e-33, xrow(ii, kk + 1, nn))
+                  totmass(ii, kk, mm) = totmass(ii, kk, mm) + tramass
+                  rhopd(ii, kk, mm) = rhopd(ii, kk, mm) + tramass / rhop0(nt)
+               end do
+            end do
+         end do
+      end do
+      do mm = 1, isize
+         rdi = 0.5 * (aerosize(1, mm) + aerosize(2, mm))
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               rhopd(ii, kk, mm) = totmass(ii, kk, mm) / rhopd(ii, kk, mm)
+               rmass(ii, kk, mm) = 4.189 * rdi * rdi * rdi * rhopd(ii, kk, mm)
+               aeronum(ii, kk, mm) = totmass(ii, kk, mm) / rmass(ii, kk, mm)
+            end do
+         end do
+      end do
+   end if ! end of aqueous phase chemistry
+
+
+!  Call heterogeneous chemistry (apply to cases when aq & het. are run independantly of
+!  each other or when it is run for the cloud free portion of the grid - then the cloudy
+!  het. chem is done in IN_cloud)
+!  heterogeneous chemistry called independently of aqueous chemistry for now
+   iswhet = 0
+
+   do kk = 1, ilev
+      do ii = 1, F_chm_ni
+         do ll = 1, ntr
+            xrow_new(ii, kk, ll) = xrow(ii, kk + 1, ll)
+         end do
+      end do
+   end do
+
+!  mass balance for hetchem (reuse calculations for aq.)
+   do kk = 1, ilev
+      do ii = 1, F_chm_ni
+         do n = 1, 4
+            totav(ii, kk, n) = 0.0
+         end do
+         totav(ii, kk, 1) = totav(ii, kk, 1) + xrow_new(ii, kk, iso4) * 96.0636 / 98.0795
+         totav(ii, kk, 2) = totav(ii, kk, 2) + xrow_new(ii, kk, ihno3) * 62.0049 / 63.0128
+         totav(ii, kk, 3) = totav(ii, kk, 3) + xrow_new(ii, kk, inh3) * 18.0385 / 17.03056
+         do mm = 1, isize
+            totav(ii, kk, 1) = totav(ii, kk, 1) + xrow_new(ii, kk, 49 + (ipos_sulfate  - 1) * isize + mm)
+            totav(ii, kk, 2) = totav(ii, kk, 2) + xrow_new(ii, kk, 49 + (ipos_nitrates - 1) * isize + mm)
+            totav(ii, kk, 3) = totav(ii, kk, 3) + xrow_new(ii, kk, 49 + (ipos_ammonium - 1) * isize + mm)
+            totav(ii, kk, 4) = totav(ii, kk, 4) + xrow_new(ii, kk, 49 + (ipos_seasalt  - 1) * isize + mm)
+         end do
+      end do
+   end do
+
+!  xrow_new is transfered into g (47 gazeous species)
+   do ll = 1, maxns
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            gaz(ii, ll, kk) = xrow_new(ii, kk, ll)
+         end do
+      end do
+   end do
+
+!  xrow_new is transfer into aerocon
+   do mm = 1, isize
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            aerocon(ii, 1, kk, mm) = xrow_new(ii, kk, 49 + (ipos_sulfate  - 1) * isize + mm) !so4
+            aerocon(ii, 2, kk, mm) = xrow_new(ii, kk, 49 + (ipos_nitrates - 1) * isize + mm) !no
+            aerocon(ii, 3, kk, mm) = xrow_new(ii, kk, 49 + (ipos_ammonium - 1) * isize + mm) !nh
+            aerocon(ii, 5, kk, mm) = xrow_new(ii, kk, 49 + (ipos_seasalt  - 1) * isize + mm) !sea salt
+         end do
+      end do
+   end do
+
+!  New added for turning off heterogeneous chemistry in GEM-MACH, P. Hunag
+!  keep using 'hetselec' to avoid change in AURAMS version CAM, Ping
+!  for hetv or isorropia
+   select case (hetselec)
+      case (1, 0)
+         call tmg_start0 ( 15, 'mach_hetv_hetchem')
+         call mach_hetv_hetchem(GAZ, AEROCON, throw_new, pres, npts, nptsnz, ilev,  &
+                              ibulk, jlat, aeronum, rhrow_new, aerosize, kount,   &
+                              iswhet, iso4, ihno3, inh3,                          &
+                              isize, p3drow, rhorow, hetselec)
+         call tmg_stop0 ( 15 )
+      case (-1) !for 'nil'
+         continue
+   end select
+
+   if(local_dbg) then
+      write(chm_lun_out, *)'EXITING hetchem ', iswhet
+   end if
+
+   do kk = 1, ilev
+      do ii = 1, F_chm_ni
+         do n = 1, 4
+            totap(ii, kk, n) = 0.0
+         end do
+         totap(ii, kk, 1) = totap(ii, kk, 1) + gaz(ii, iso4, kk)  * 96.0636 / 98.0795
+         totap(ii, kk, 2) = totap(ii, kk, 2) + gaz(ii, ihno3, kk) * 62.0049 / 63.0128
+         totap(ii, kk, 3) = totap(ii, kk, 3) + gaz(ii, inh3, kk)  * 18.0385 / 17.03056
+         do mm = 1, isize
+            totap(ii, kk, 1) = totap(ii, kk, 1) + aerocon(ii, 1, kk, mm)
+            totap(ii, kk, 2) = totap(ii, kk, 2) + aerocon(ii, 2, kk, mm)
+            totap(ii, kk, 3) = totap(ii, kk, 3) + aerocon(ii, 3, kk, mm)
+            totap(ii, kk, 4) = totap(ii, kk, 4) + aerocon(ii, 5, kk, mm)
+         end do
+      end do
+   end do
+
+   do n = 1, 4
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            orgmass = totav(ii, kk, n) * 1.0e-3
+            diff = totap(ii, kk, n) - totav(ii, kk, n)
+            if (diff > orgmass .or. diff < -1.0 * orgmass) then
+               write (0, *) '### Error in mach_cam_aerocld ###'
+               write (0, *) '# mass balance pb ', ii, kk, n, kount, jlat
+               write (0, *) '#', totav(ii, kk, n), totap(ii, kk, n)
+               write (0, *) '#', diff, orgmass
+               write (0, *) '###         ABORT             ###'
+               call chm_stop('mach_cam_aerocld ', -1)
+            end if
+         end do
+      end do
+   end do
+
+!  mass balance for hetchem (reuse calculations for aq.)
+   do n = 1, 4
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            totav(ii, kk, n) = totap(ii, kk, n)
+         end do
+      end do
+   end do
+
+!  move back "g" to "Xrow_new"
+!  transfer xrow_new back to xrow for gaseous species adjusted to take
+!  into account (1-cloud fraction) if iswhet=1 - if iswhet=0, apply to whole grid
+
+   if (iswhet == 0) then
+      do ll = 1, maxns   ! transfer first 47 species into g
+         do kk = 1, ilev ! or maxcnz equivalent
+            do ii = 1, F_chm_ni
+               xrow_new(ii, kk, ll) = gaz(ii, ll, kk)
+               xrow(ii, kk + 1, ll) = xrow_new(ii, kk, ll)
+            end do
+         end do
+      end do
+   else
+      do ll = 1, maxns
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               xrow_new(ii, kk, ll) = tcldcv(ii, kk) * xrow(ii, kk + 1, ll) +  &
+                                      (1.0 - tcldcv(ii, kk)) * gaz(ii, ll, kk)
+               xrow(ii, kk + 1, ll) = xrow_new(ii, kk, ll)
+            end do
+         end do
+      end do
+   end if
+
+!  move back "aerocon" to "Xrow"
+!  Note that xrow (rather than xrow_new) now contains concentration after hetchem
+   do mm = 1, isize
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            xrow(ii, kk + 1, 49 + (ipos_sulfate  - 1) * isize + mm) = aerocon(ii, 1, kk, mm) !so4
+            xrow(ii, kk + 1, 49 + (ipos_nitrates - 1) * isize + mm) = aerocon(ii, 2, kk, mm) !no3
+            xrow(ii, kk + 1, 49 + (ipos_ammonium - 1) * isize + mm) = aerocon(ii, 3, kk, mm) !nh4
+            xrow(ii, kk + 1, 49 + (ipos_seasalt  - 1) * isize + mm) = aerocon(ii, 5, kk, mm) !seasalt
+         end do
+      end do
+   end do
+
+!  calculating the net change in aerosol mass needed for rebinning
+!  making use of XROW before it is updated in ADD_MOON_LEVEL.
+   daqchm = 0.0
+   do mm = 1, isize
+      nn1 = (iae1 - 1) + (ipos_sulfate - 1) * isize + mm
+      nn2 = (iae1 - 1) + (ipos_nitrates - 1) * isize + mm
+      nn3 = (iae1 - 1) + (ipos_ammonium - 1) * isize + mm
+      nn5 = (iae1 - 1) + (ipos_seasalt - 1) * isize + mm
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            daqchm(ii, kk, mm) =  xrow(ii, kk + 1, nn1) - xrow_new(ii, kk, nn1) &
+                                + xrow(ii, kk + 1, nn2) - xrow_new(ii, kk, nn2) &
+                                + xrow(ii, kk + 1, nn3) - xrow_new(ii, kk, nn3) &
+                                + xrow(ii, kk + 1, nn5) - xrow_new(ii, kk, nn5)
+         end do
+      end do
+   end do
+
+!  calculate dry density before cloud chemistry
+   rhopd = 0.0
+   totmass = 0.0
+   do nt = 1, ntp
+      do mm = 1, isize
+         nn = (iae1 - 1) + (nt - 1) * isize + mm
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               tramass = max(1.0e-33, xrow_new(ii, kk, nn))
+               totmass(ii, kk, mm) = totmass(ii, kk, mm) + tramass
+               rhopd(ii, kk, mm) = rhopd(ii, kk, mm) + tramass / rhop0(nt)
+            end do
+         end do
+      end do
+   end do
+   do mm = 1, isize
+      rdi = 0.5 * (aerosize(1, mm) + aerosize(2, mm))
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            rhopd(ii, kk, mm) = totmass(ii, kk, mm) / rhopd(ii, kk, mm)
+            rmass(ii, kk, mm) = 4.189 * rdi * rdi * rdi * rhopd(ii, kk, mm)
+         end do
+      end do
+   end do
+
+!  mass balance after het. chem 2
+   do kk = 1, ilev
+      do ii = 1, F_chm_ni
+         do n = 1, 4
+            totap(ii, kk, n) = 0.0
+         end do
+         totap(ii, kk, 1) = totap(ii, kk, 1) + xrow(ii, kk + 1, iso4)  * 96.0636 / 98.0795
+         totap(ii, kk, 2) = totap(ii, kk, 2) + xrow(ii, kk + 1, ihno3) * 62.0049 / 63.0128
+         totap(ii, kk, 3) = totap(ii, kk, 3) + xrow(ii, kk + 1, inh3)  * 18.0385 / 17.03056
+         do mm = 1, isize
+            totap(ii, kk, 1) = totap(ii, kk, 1) +  xrow(ii, kk + 1, 49 + (ipos_sulfate  - 1) * isize + mm)
+            totap(ii, kk, 2) = totap(ii, kk, 2) +  xrow(ii, kk + 1, 49 + (ipos_nitrates - 1) * isize + mm)
+            totap(ii, kk, 3) = totap(ii, kk, 3) +  xrow(ii, kk + 1, 49 + (ipos_ammonium - 1) * isize + mm)
+            totap(ii, kk, 4) = totap(ii, kk, 4) +  xrow(ii, kk + 1, 49 + (ipos_seasalt  - 1) * isize + mm)
+         end do
+      end do
+   end do
+
+   do n = 1, 4
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            orgmass = totav(ii, kk, n) * 1.0e-3
+            diff = totap(ii, kk, n) - totav(ii, kk, n)
+            if (diff > orgmass .or. diff < -1.0 * orgmass) then
+               write (0, *) '### Error in mach_cam_aerocld ###'
+               write (0, *) '# mass balance pb'
+               write (0, *) '# ii, kk, n, kount, jlat', ii, kk, n, kount, jlat
+               write (0, *) '# totav(ii, kk, n), totap(ii, kk, n)', totav(ii, kk, n), totap(ii, kk, n)
+               write (0, *) '# diff, orgmass2', diff, orgmass
+               write (0, *) '###         ABORT             ###'
+               call chm_stop('mach_cam_aerocld ', -1)
+            end if
+         end do
+      end do
+   end do
+
+   do n = 1, 4
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            totav(ii, kk, n) = totap(ii, kk, n)
+         end do
+      end do
+   end do
+
+!  mass redistribution
+   call tmg_start0 ( 16, 'mach_intrsec1 2nd call from aerocld')
+   call mach_cam_intrsec1_outer(lev, ilev, F_chm_ni, il1, il2, XROW, ntr, ntp, iae1, &
+                     isize, rhopd, daqchm, aerosize, q_bin, rcrits, 0)
+   call tmg_stop0 ( 16 )
+!
+!
+!  Adjust for (1-cloud fraction) if iswhet=1
+!  if iswhet=0, apply to whole grid - xrow already have new conc.
+!  put moon level back into XROW
+
+   if (iswhet == 1) then
+      do mm = 1, isize
+         nn1 = (iae1 - 1) + (ipos_sulfate  - 1) * isize + mm
+         nn2 = (iae1 - 1) + (ipos_nitrates - 1) * isize + mm
+         nn3 = (iae1 - 1) + (ipos_ammonium - 1) * isize + mm
+         nn5 = (iae1 - 1) + (ipos_seasalt  - 1) * isize + mm
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               xrow(ii, kk + 1, nn1) =  (1.0 - tcldcv(ii, kk)) * xrow(ii, kk + 1, nn1) +  &
+                                        tcldcv(ii, kk) * xrow_new(ii, kk, nn1)  !so4
+               xrow(ii, kk + 1, nn2) =  (1.0 - tcldcv(ii, kk)) * xrow(ii, kk + 1, nn2) +  &
+                                        tcldcv(ii, kk) * xrow_new(ii, kk, nn2)  !no3
+               xrow(ii, kk + 1, nn3) =  (1.0 - tcldcv(ii, kk)) * xrow(ii, kk + 1, nn3) +  &
+                                        tcldcv(ii, kk) * xrow_new(ii, kk, nn3)  !nh4
+               xrow(ii, kk + 1, nn5) =  (1.0 - tcldcv(ii, kk)) * xrow(ii, kk + 1, nn5) +  &
+                                        tcldcv(ii, kk) * xrow_new(ii, kk, nn5)  !sea salt
+            end do
+         end do
+      end do
+   end if
+
+
+!  update rhop and aeronum
+
+   rhopd = 0.0
+   totmass = 0.0
+   do nt = 1, ntp
+      do mm = 1, isize
+         nn = (iae1 - 1) + (nt - 1) * isize + mm
+         do kk = 1, ilev
+            do ii = 1, F_chm_ni
+               tramass = max(1.0e-33, xrow(ii, kk + 1, nn))
+               totmass(ii, kk, mm) = totmass(ii, kk, mm) + tramass
+               rhopd(ii, kk, mm) = rhopd(ii, kk, mm) + tramass / rhop0(nt)
+            end do
+         end do
+      end do
+   end do
+   do mm = 1, isize
+      rdi = 0.5 * (aerosize(1, mm) + aerosize(2, mm))
+      do kk = 1, ilev
+         do ii = 1, F_chm_ni
+            rhopd(ii, kk, mm) = totmass(ii, kk, mm) / rhopd(ii, kk, mm)
+            rmass(ii, kk, mm) = 4.189 * rdi * rdi * rdi * rhopd(ii, kk, mm)
+            aeronum(ii, kk, mm) = totmass(ii, kk, mm) / rmass(ii, kk, mm)
+         end do
+      end do
+   end do
+
+!  mass balance after het. chem 2
+
+   do kk = 1, ilev
+      do ii = 1, F_chm_ni
+         do n = 1, 4
+            totap(ii, kk, n) = 0.0
+         end do
+         totap(ii, kk, 1) = totap(ii, kk, 1) + xrow(ii, kk + 1, iso4)  * 96.0636 / 98.0795
+         totap(ii, kk, 2) = totap(ii, kk, 2) + xrow(ii, kk + 1, ihno3) * 62.0049 / 63.0128
+         totap(ii, kk, 3) = totap(ii, kk, 3) + xrow(ii, kk + 1, inh3)  * 18.0385 / 17.03056
+         do mm = 1, isize
+            totap(ii, kk, 1) = totap(ii, kk, 1) + xrow(ii, kk + 1, 49 + (ipos_sulfate  - 1) * isize + mm)
+            totap(ii, kk, 2) = totap(ii, kk, 2) + xrow(ii, kk + 1, 49 + (ipos_nitrates - 1) * isize + mm)
+            totap(ii, kk, 3) = totap(ii, kk, 3) + xrow(ii, kk + 1, 49 + (ipos_ammonium - 1) * isize + mm)
+            totap(ii, kk, 4) = totap(ii, kk, 4) + xrow(ii, kk + 1, 49 + (ipos_seasalt  - 1) * isize + mm)
+         end do
+      end do
+   end do
+   return
+end

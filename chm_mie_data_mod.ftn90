@@ -1,0 +1,13 @@
+
+module chm_mie_data_mod
+!  Contains lookup table of coefficient for Mie scattering
+!=============================================================================================
+
+   save
+
+   integer, parameter :: mxxb = 1001
+   integer, parameter :: mxx = 101
+   real qext_t(mxxb,mxx),ssca_t(mxxb,mxx),asym_t(mxxb,mxx)
+   real l10alf(mxxb), l10df(mxx)
+
+end module chm_mie_data_mod

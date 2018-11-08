@@ -1,0 +1,64 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_aurams_tsysms.ftn90
+! Creation       : S. Gong, W. Gong, S.Gravel V. Bouchet, B. Pabla, GEM-MACH, July 2008
+! Description    : Prints out row values (between il1 and il2) of array fld,
+!                  for each of nlev levels at "jlat" latitude row inside routine.
+!
+! Extra info     :
+!
+! Arguments  IN
+!              xrow(icdn) --> Tracer array (kg/kg) but at index xrow(icdn)=no cloud droplet/m3
+!                             i.e. "th" for throw.
+!              loc        --> location where printout is occurring, i.e.
+!                             "after vrtdfs" being displayed.
+!              ilev       --> number of levels for variable.
+!              F_chm_ni   --> number of equally-spaced longitudes to be printed out.
+!              il1        --> starting longitude number for printout.
+!              il2        --> finishing longitude number for printout.
+!              ilev       --> No. z-direct. vertical levels
+!              isize      --> Number of size bins
+!              iae1       --> Index of first aerosol in trace substance list (ntr)
+!              nt         --> This is izon = 3
+!
+!            OUT
+!              TMASS      --> Total Mass at site
+!=============================================================================
+subroutine mach_aurams_tsysms (xrow, TMASS, F_chm_ni, ilev, il1, il2, ntr, iae1, nt, isize, loc)
+   use chm_utils_mod
+   implicit none
+
+   integer, intent(in)  :: F_chm_ni, ilev, ntr
+   integer, intent(in)  :: il1, il2, iae1, nt, isize, loc
+   real,    intent(in)  :: xrow(F_chm_ni, ilev + 1, ntr)
+   real,    intent(out) :: tmass
+
+!  local variables
+   integer :: n, l, il
+   logical local_dbg
+
+   local_dbg = (.false. .or. global_debug)
+
+   tmass = 0.0
+   do n = (nt - 1) * isize + 1 + (iae1 - 1), nt * isize + (iae1 - 1)
+      do l = 1, ilev
+         do il = il1, il2
+            tmass = tmass + xrow(il, l + 1, n)
+         end do
+      end do
+   end do
+
+   if (local_dbg) then
+      write (chm_lun_out, *)' totmas at site ', loc, ' is ', tmass
+   end if
+return
+end

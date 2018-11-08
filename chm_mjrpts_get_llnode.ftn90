@@ -1,0 +1,84 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_get_llnode.ftn90
+! Creation       : A. Kallaur - April 2007
+! Description    : Get the data for all point sources for a particular field (node)
+!                  in the linked list.
+!
+! Extra info     :
+!
+! Arguments
+!            IN
+!              flen   -->  Number of element (points) in data array
+!              var    -->  field name (nomvar at char*4)
+!            OUT
+!              fout   -->  Output array (len = nb_sources)
+!
+!==============================================================================
+
+subroutine chm_mjrpts_get_llnode(FOUT, flen, fname)
+   use chm_utils_mod
+   use chm_mjrpts_lnklst_mod
+   implicit none
+   integer,          intent(in)  :: flen
+   real,             intent(out) :: fout(flen)
+   character(len=*), intent(in)  :: fname
+!
+! Included data structures and common decks
+!
+
+!
+! Declare external functions
+!
+   integer  longueur
+   external longueur
+!
+! Declaration of local variables
+!
+   integer             :: i
+   integer             :: istat
+   logical             :: local_dbg
+   type (ltp), pointer :: current_mjrpts
+
+   local_dbg = (.false. .or. global_debug)
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Entered chm_mjrpts_get_llnode:'
+   end if
+   if (.not. associated(head_mjrpts)) then
+      write(chm_lun_out, *) 'ERROR: UNEXPECTED EMPTY MAJOR POINT SOURCE LIST'
+      call chm_stop('chm_get_mjpt_llnode', -1)
+   endif
+   current_mjrpts => head_mjrpts
+   do
+      if (current_mjrpts%var_name(1:longueur(current_mjrpts%var_name)) == fname(1:longueur(fname))) then
+         if (local_dbg) then
+            write(chm_lun_out, *) 'found field: ', fname, ' in MJPT list'
+         end if
+         if (size(current_mjrpts%field) /= flen) then
+            write(chm_lun_out, *) 'Field length mismatch:'
+            write(chm_lun_out, *) 'expected size: ', size(current_mjrpts%field), '  but found: ', flen
+            call chm_stop('chm_get_mjpt_llnode', -1)
+         else
+            fout = current_mjrpts%field
+            exit
+         endif
+      else
+         if (.not. associated(current_mjrpts%next_p)) then
+            write(chm_lun_out, *) 'ERROR: Variable: ', fname, ' NOT FOUND in MJPT list'
+            call chm_stop('chm_get_mjpt_llnode', -1)
+         else
+            current_mjrpts => current_mjrpts%next_p
+         endif
+      endif
+   enddo
+   return
+end subroutine chm_mjrpts_get_llnode

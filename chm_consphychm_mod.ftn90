@@ -1,0 +1,74 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_consphychm_mod.ftn90
+! Creation       : H. Landry, Mai 2008
+! Description    : Modules defining physical and chemical constants as
+!                  provided in the file "constante" in the GEM directory
+!
+! Extra info     :
+!
+!============================================================================
+
+module chm_consphychm_mod
+   save
+
+   real cpd       ! .100546e+4 j k-1 kg-1; specific heat of dry air
+   real cpv       ! .186946e+4 j k-1 kg-1; specific heat of water vapour
+   real rgasd     ! .28705e+3 j k-1 kg-1; gas constant for dry air
+   real rgasv     ! .46151e+3 j k-1 kg-1; gas constant for water vapour
+   real trpl      ! .27316e+3 k; triple point of water
+   real tcdk      ! .27315e+3; conversion from kelvin to celsius
+   real rauw      ! .1e+4; density of liquid h2o
+   real eps1      ! .62194800221014 ; rgasd/rgasv
+   real eps2      ! .3780199778986 ; 1 - eps1
+   real delta     ! .6077686814144 ; 1/eps1 - 1
+   real cappa     ! .28549121795; rgasd/cpd
+   real tgl       ! .27316e+3 k; ice temperature in the atmosphere
+   real consol    ! .1367e+4 w m-2; solar constant
+   real grav      ! .980616e+1 m s-2; gravitational acceleration
+   real rayt      ! .637122e+7 m; mean radius of the earth
+   real stefan    ! .566948e-7 j m-2 s-1 k-4; stefan-boltzmann constant
+   real pi        ! .314159265359e+1; pi constant = acos(-1)
+   real omega     ! .7292e-4s-1; angular speed of rotation of the earth
+   real knams     ! .514791; conversion from knots to m/s
+   real stlo      ! .6628486583943e-3 k s2 m-2; schuman-newell lapse rate
+   real karman    ! .35; von karman constant
+   real ric       ! .2; critical richardson number
+   real chlc      ! .2501e+7 j kg-1; latent heat of condensation
+   real chlf      ! .334e+6 j kg-1; latent heat of fusion
+   real t1s       ! .27316e+3 k; constant used to calculate l/cp in fcn htvocp
+   real t2s       ! .25816e+3 k; constant used to calculate l/cp in fcn htvocp
+   real aw        ! .3135012829948e+4; constant used to calculate l/cp in fcn htvocp
+   real bw        ! .2367075766316e+1; constant used to calculate l/cp in fcn htvocp
+   real ai        ! .2864887713087e+4; constant used to calculate l/cp in fcn htvocp
+   real bi        ! .166093131502; constant used to calculate l/cp in fcn htvocp
+   real slp       ! .6666666666667e-1; constant used to calculate l/cp in fcn htvocp
+!
+!     declaration of chemical constants
+!
+   real avno      ! 0.6022000000000e+24  avogadro's num        atoms mol-1
+   real kboltz    ! 0.1381000000000e-16  boltzmann constant    (in cgs)
+   real rgm       ! 0.8314000000000e-01  universal gas const.  10^-2 j mol-1 k-1
+   real rg        ! 0.8202714038983e-04  gas constant          atm -> pa
+   real gask      ! 0.8314000000000e+04  gas constant
+   real rgasi     ! 0.8314000000000e+01  gas constant
+   real mwt_air   ! 0.2897000000000e+02  mol. wgt. of air
+   real rho_h2o   ! 0.1000000000000e+07  density of water       g/m**3
+   real consth    ! 0.1607549380000e+07  const for conv hum                    1.0e+06 / (18.015/28.96)
+   real conva     ! 0.5729577640000e+02  angle conversion                      180.0 / acos(-1.0)
+
+
+
+
+end module chm_consphychm_mod
+
+

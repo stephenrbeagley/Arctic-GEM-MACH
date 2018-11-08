@@ -1,0 +1,545 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_getphybus_struct.ftn90
+! Creation       : A. Kallaur (MSC/ARQI) and V.Lee (MSC/RPN) - July 2005
+! Description    : Extract selected (depending on the chem. scheme)
+!                  physics variable information (offset, size, initialize (yes, no->1, 0))
+!                  from the the physics buses. This is organised via the subroutine
+!                  callback method
+!
+! Extra info     :
+!
+! Arguments:
+!           IN
+!             geti_p2c --> get index callbak
+!
+!==============================================================================
+!
+subroutine chm_getphybus_struct(geti_p2c, istcond, iconvec)
+   use chm_utils_mod
+   use chm_phyvar_mod
+   implicit none
+
+   external geti_p2c
+
+   integer init0, istcond, iconvec
+   logical local_dbg
+
+   local_dbg = (.false. .or. global_debug)
+   write(chm_lun_out, *) 'in chm_getphybus_struct'
+!---------------------------------------------------------------------------------------------------------------
+!  Meteorology input variables, 3D:
+!---------------------------------------------------------------------------------------------------------------
+!  GEM Internal      GEM output   Meaning                                             units      Equivalent AURAMS variable
+!   tt                  TT        Temperature                                         K             tt
+!   F_busvol(kt)        KT        Thermal vertical diffusion coefficient              m**2/s        kx
+!   F_busper(ftot)      FN        Total cloud (0-1),                                  none          nu
+!   F_busper(fxp)       NS        Stratiform cloud (0-1)                              none          ns
+!   F_busper(fdc)       CK        Deep Convective cloud fraction                      none          nc
+!   F_busper(fsc)       FSC       Shallow convective cloud fraction                   none          nc
+!   hu                  HU        Specific humidity, kg H2O vapour/kg air             none          hu
+!   qc                  QC        Cloud water/ice kg/kg air                           none          qc
+!   F_busvol(rnflx)     RF        Liquid precipitation flux,                          kg/m**2/s     yw
+!   F_busvol(snoflx)    SF        Solid precipitation flux,                           kg/m**2/s     yi
+!   F_busvol(km)        KM        Momentum vertical diffusion coeff.                  m**2/s        km
+!   F_busper(fice)      F8        Ice fraction of cloud water from condens.  (0-1)    none
+!   cw                  -         Cloud liquid water content                          kg/m3         cw
+!   F_busper(lwc)       QD        Cloud water content at time t                       none
+!   F_busvol(cls)       NN        Cloud snow, consun                                  kg/m3         si (was set to QC!)
+!   F_busvol(clr)       13        Cloud rain, consun                                  kg/m3         cr
+!   F_busvol(fevp)      PV        Evap. of strat precip, consun                       none          ev
+!   F_busvol(f12)       12        Cloud to rain collection tendency, consun           none          wr
+!   F_busdyn(gzmoins6)  GM        (Geopotential - surface geopotential) at t-dt       m2/s2         GZ
+!                                (note that normalization by g is required to get GZ:  geopotential height above ground
+!   gz                  -         Geopotential height above surface, post-physics     m             GZ
+!   qr                  -         Rain/Snow                                           none          -
+!   F_busper(qrkfc)     S3        rain water/snow tend. due to KFC      s-1             s3
+!   F_busper(kfcrf)     L3        liquid precip flux from kfc           kg/m**2/s       l3
+!   F_busper(kfcsf)     L4        solid precip flux from kfc            kg/m**2/s       l4
+!---------------------------------------------------------------------------------------------------------------
+!  Meteorology input variables, 2D:
+!---------------------------------------------------------------------------------------------------------------
+!  GEM Internal      GEM output   Meaning                                             units      Equivalent AURAMS variable
+!   F_busvol(ue)        UE        Friction velocity u* from surface momentum flux     m/s           ux
+!   F_busdyn(frv)       B5        Friction velocity u*                                m/s           ux
+!   F_busvol(za)        ZA        Thickness of surface layer                          m             ax--> "anemometer height??"
+!   F_busvol(phit0)     X0        Stability function value at z = 0                   none          sx
+!   F_busvol(rib)       RB        Bulk Richardson number                              none          rb
+!   F_busvol(kcl)       KC        1st level in the PBL                                none          -
+!   F_busvol(ctue)      CH        Transfer coefficient for thermodynamics             m/s           tx
+!   F_busvol(cang)      CX        Cosine of solar zenith                              none          cx
+!   F_busdyn(pplus)     2P        Surface pressure(only modified by dynamics)         Pa            p0
+!   F_busper(fdss)      FS        Visible flux absorbed by ground                     W/m2          fs
+!   F_busper(fdsi)      FI        IR energy flux towards ground                       W/m2          -
+!   F_busper(tsurf)     J8        Area averaged surface temperature                   K             tg
+!   F_busper(tveg)      TE        Canopy temperature                                  K             -
+!   F_busper(udiag)     UD        Screen level X component of wind                    m/s
+!   F_busper(vdiag)     VD        Screen level Y component of wind                    m/s
+!   F_busper(glsea)     GL        Sea ice fraction                                    none          gl
+!   F_busper(snodp)     SD        Snow Depth                                          m             sd
+!   F_busvol(rhod)      M3        Air Density                                         kg/m3         m3 (in preprocessor)
+!   F_busper(nt)        NT        2D cloud cover                                      none          nt
+!   F_busvol(pr)        PR        Accumulation of total precipitation                 kg?           pr
+!   F_busper(wsoil)     I1        Soil volumetric water content                       kg?           I1
+!   F_busper(isoil)     I2        Soil volumetric ice content                         kg?           I2
+!   F_busper(tdiag)     TJ        Screen level temperature                            K             TT
+!   F_busper(qdiag)     DQ        Screen level specific humidity                      none          HU
+!   F_busdyn(dxdy)      DX        Area of grid square                                 m^2           -
+!   F_busper(z0)        Z0        momentum roughness length                           m or (log(m))?? -> check this
+!   F_busper(Z0T)       ZT        thermal roughness length                            m or (log(m))?? -> check this
+!
+!---------------------------------------------------------------------------------------------------------
+!  Some meteorological variables needed for GEM-MACH must be calculated
+!  in s/r updatdyn.  The following variables are required for those calculations:
+!
+!  GEM Internal      GEM output   Meaning                                                       units
+!
+!   F_busdyn(uplus)    UP         Wind speed along X at t+dt(dynamics)                          knots
+!   F_busvol(uphytd)   UPHY       U total tendency due to all physics processes                 knots/s
+!   F_busdyn(vplus)    VP         Wind speed along Y at t+dt(dynamics)                          knots
+!   F_busvol(vphytd)   VPHY       V total tendency due to all physics processes                 knots/s
+!   F_busdyn(tplus)    2T         Temperature at t+dt(dynamics)                                 K
+!   F_busvol(tphytd)   TPHY       Total temperature tendency due to physics processes           K/s
+!   F_busdyn(huplus)   UH         Specific humidty at t+dt(dynamics)                            none(kg/kg air)
+!   F_busvol(huphytd)  QPHY       Specific humidity tendency due to physics processes           kg/kgair / s
+!   F_busdyn(qcplus)   CQ         Cloud water/ice at t+dt(dynamics)                             none(kg/kg air)
+!   F_busvol(qcphytd)  QT         QC tendency due to physics processes                          kg/kgair / s
+!   F_busdyn(qrplus)   RQ         Rain water/snow at t+dt(dynamics)                             none(kg/kg air)
+!   F_busvol(qrphytd)  Q5         Specific humidity tendency due to physics processes           kg/kgair / s
+!   F_busvol(qiplus)   QI         ice (mass) at t+dt(dynamics)
+!   F_busvol(qiphytd)  QI         tendency from microphysics (or Kong-Yau, depending on switch)
+!   F_busvol(qgplus)   QG         graupel (mass) at t+dt(dynamics)
+!   F_busvol(qgphytd)  QG         tendency from microphysics (or Kong-Yau, depending on switch)
+!   F_busvol(qhplus)   QH         hail (mass) at t+dt(dynamics)
+!   F_busvol(qhphytd)  QH         tendency from microphysics
+!   F_busvol(qnplus)   QN         snow (mass) at t+dt(dynamics)
+!   F_busvol(qnphytd)  QN         tendency from microphysics
+!   F_busdyn(phis)     PHIS       Surface geopotential                                          m2/s2
+!   F_busper(fice)     F8         Ice fraction from condensation                                none
+!   F_busper(st1i)     S1         ln (pi_s / z_s):  for GZ calculations                         ln(pressure/z)  ?
+!   F_busper(presi)    PP         ln (pressure)                                                 ln(pressure)
+!----------------------------------------------------------------------------------------------
+!
+!  New variables to allow chemistry 2D diagnostic fields to be outputted to the
+!  permanent bus:
+!
+!   F_busper(wd_hso3)  HSO3       Cumulative wet deposition of HSO3-
+!   F_busper(wd_hpxa)  HPXA       Cumulative wet deposition of H2O2(aq)
+!   F_busper(wd_rpxa)  RPXA       Cumulative wet deposition of ROOH(aq)
+!   F_busper(wd_so4 )  WSO4       Cumulative wet deposition of SO4(=)
+!   F_busper(wd_no3 )  WNO3       Cumulative wet deposition of NO3(-)
+!   F_busper(wd_nh4 )  WNH4       Cumulative wet deposition of NH4(+)
+!   F_busper(wd_cat )  CAT        Cumulative wet deposition of base cations
+!   F_busper(wd_hco3)  HCO3       Cumulative wet deposition of HCO3(-)
+!   F_busper(wd_h   )  WH         Cumulative wet deposition of H(+)
+!   F_busper(wd_sslt)  SSLT       Cumulative wet deposition of Sea Salt aerosol
+!   F_busper(wd_ocbn)  OCBN       Cumulative wet deposition of Secondary organic carbon aerosol
+!   F_busper(wd_h2o )  H2O        Cumulative wet deposition of Aerosol bound water
+!   F_busper(wd_dust)  DUST       Cumulative wet deposition of Crustal material aerosol
+!   F_busper(wd_blc )  BLC        Cumulative wet deposition of Black Carbon aerosol
+!   F_busper(wd_pcbn)  PCBN       Cumulative wet deposition of Primayr organic carbon aerosol
+!   F_busper(dd_pso4)  PSO4       Cumulative dry deposition of particle sulphate
+!   F_busper(dd_pss)   PSS        Cumulative dry deposition of particle sea-salt
+!   F_busper(dd_poc)   POC        Cumulative dry deposition of particle secondary organic carbon
+!   F_busper(dd_pno3)  PNO3       Cumulative dry deposition of particle nitrate
+!   F_busper(dd_pnh4)  PNH4       Cumulative dry deposition of particle ammonium
+!   F_busper(dd_pcm)   PCM        Cumulative dry deposition of particle crustal material
+!   F_busper(dd_pec)   PEC        Cumulative dry deposition of particle elemental carbon
+!   F_busper(dd_ppc)   PPC        Cumulative dry deposition of particle primary organic carbon
+!   F_busper(dd_so2)   SO2        Cumulative dry deposition of gaseous sulphur dioxide
+!   F_busper(dd_h2so4) H2SO4      Cumulative dry deposition of gaseous sulphuric acid
+!   F_busper(dd_no)    NO         Cumulative dry deposition of gaseous nitrogen monoxide
+!   F_busper(dd_no2)   NO2        Cumulative dry deposition of gaseous nitrogen dioxide
+!   F_busper(dd_o3)    O3         Cumulative dry deposition of gaseous ozone
+!   F_busper(dd_hno3)  HNO3       Cumulative dry deposition of gaseous nitric acid
+!   F_busper(dd_pan)   PAN        Cumulative dry deposition of gaseous peroxyacetylnitrate
+!   F_busper(dd_hono)  HONO       Cumulative dry deposition of gaseous nitrous acid
+!   F_busper(dd_rno3)  RNO3       Cumulative dry deposition of gaseous organic nitrates
+!   F_busper(dd_nh3)   NH3        Cumulative dry deposition of gaseous ammonia
+!   F_busper(dd_noy)   NOY        Cumulative dry deposition of total gaseous nitrogen tracers
+
+!
+!      Get from the PHYS. DYN. bus.
+!
+! Biogenic stuff
+!       call geti_p2c('P0'     , 'D', p0     , p0_siz     , init0) on prend PPLUS
+       call geti_p2c('GZMOINS6', 'D', gzmoins6, gzmoins6_siz, init0)
+       call geti_p2c('PPLUS'   , 'D', pplus   , pplus_siz , init0)
+       call geti_p2c('VPLUS'   , 'D', vplus   , vplus_siz , init0)
+       call geti_p2c('UPLUS'   , 'D', uplus   , uplus_siz , init0)
+       call geti_p2c('TPLUS'   , 'D', tplus   , tplus_siz , init0)
+       call geti_p2c('HUPLUS'  , 'D', huplus  , huplus_siz, init0)
+       if(istcond == 12) then
+        call geti_p2c('QBPLUS'  , 'D', qbplus  , qbplus_siz, init0)
+       else
+        call geti_p2c('QCPLUS'  , 'D', qcplus  , qcplus_siz, init0)
+       end if
+!       call geti_p2c('QRPLUS'  , 'D', qrplus  , qrplus_siz, init0)
+!       call geti_p2c('QIPLUS'  , 'D', qiplus  , qiplus_siz, init0)
+!       call geti_p2c('QGPLUS'  , 'D', qgplus  , qgplus_siz, init0)
+!       call geti_p2c('QHPLUS'  , 'D', qhplus  , qhplus_siz, init0)
+!       call geti_p2c('QNPLUS'  , 'D', qnplus  , qnplus_siz, init0)
+       call geti_p2c('OMEGAP'  , 'D', omegap  , omegap_siz, init0)
+       call geti_p2c('SIGM'    , 'D', sigm    , sigm_siz  , init0)
+       call geti_p2c('PHIS'    , 'D', phis    , phis_siz  , init0)
+       call geti_p2c('DXDY'    , 'D', dxdy    , dxdy_siz  , init0)
+   if (local_dbg) then
+         write(chm_lun_out, *) 'FROM PHYS DYN BUS:'
+         write(chm_lun_out, *) 'GZMOINS6 -> (offset, len, init) :', gzmoins6, gzmoins6_siz, init0
+         write(chm_lun_out, *) 'PPLUS    -> (offset, len, init) :', pplus   , pplus_siz   , init0
+         write(chm_lun_out, *) 'VPLUS    -> (offset, len, init) :', vplus   , vplus_siz   , init0
+         write(chm_lun_out, *) 'UPLUS    -> (offset, len, init) :', uplus   , uplus_siz   , init0
+         write(chm_lun_out, *) 'TPLUS    -> (offset, len, init) :', tplus   , tplus_siz   , init0
+         write(chm_lun_out, *) 'HUPLUS   -> (offset, len, init) :', huplus  , huplus_siz  , init0
+         write(chm_lun_out, *) 'OMEGAP   -> (offset, len, init) :', omegap  , omegap_siz  , init0
+         write(chm_lun_out, *) 'SIGM     -> (offset, len, init) :', sigm    , sigm_siz    , init0
+         if(istcond == 12) then
+           write(chm_lun_out, *) 'QBPLUS   -> (offset, len, init) :', qbplus  , qbplus_siz  , init0
+         else
+           write(chm_lun_out, *) 'QCPLUS   -> (offset, len, init) :', qcplus  , qcplus_siz  , init0
+         end if
+         write(chm_lun_out, *) 'QRPLUS   -> (offset, len, init) :', qrplus  , qrplus_siz  , init0
+         write(chm_lun_out, *) 'QIPLUS   -> (offset, len, init) :', qiplus  , qiplus_siz  , init0
+         write(chm_lun_out, *) 'QGPLUS   -> (offset, len, init) :', qgplus  , qgplus_siz  , init0
+         write(chm_lun_out, *) 'QNPLUS   -> (offset, len, init) :', qnplus  , qnplus_siz  , init0
+         write(chm_lun_out, *) 'QHPLUS   -> (offset, len, init) :', qhplus  , qhplus_siz  , init0
+         write(chm_lun_out, *) 'PHIS     -> (offset, len, init) :', phis    , phis_siz    , init0
+         write(chm_lun_out, *) 'DXDY     -> (offset, len, init) :', dxdy    , dxdy_siz    , init0
+         write(chm_lun_out, *) '-----------------------------------------------------'
+         write(chm_lun_out, *) ' '
+   endif
+!
+!      Get from the PHYS. PER. bus.
+!
+! Other stuff
+      call geti_p2c('FTOT'   , 'P', ftot , ftot_siz , init0)
+      call geti_p2c('FXP'    , 'P', fxp  , fxp_siz  , init0)
+      call geti_p2c('FDC'    , 'P', fdc  , fdc_siz  , init0)
+      call geti_p2c('FSC'    , 'P', fsc  , fsc_siz  , init0)
+      call geti_p2c('FICE'   , 'P', fice , fice_siz , init0)
+      call geti_p2c('LWC'    , 'P', lwc  , lwc_siz  , init0)
+      call geti_p2c('FDSS'   , 'P', fdss , fdss_siz , init0)
+      call geti_p2c('FDSI'   , 'P', fdsi , fdsi_siz , init0)
+      call geti_p2c('TSURF'  , 'P', tsurf, tsurf_siz, init0)
+      call geti_p2c('TVEG'   , 'P', tveg , tveg_siz , init0)
+      call geti_p2c('UDIAG'  , 'P', udiag, udiag_siz, init0)
+      call geti_p2c('VDIAG'  , 'P', vdiag, vdiag_siz, init0)
+      call geti_p2c('GLSEA'  , 'P', glsea, glsea_siz, init0)
+      call geti_p2c('SNODP'  , 'P', snodp, snodp_siz, init0)
+      call geti_p2c('NT'     , 'P', nt   , nt_siz   , init0)
+      call geti_p2c('WSOIL'  , 'P', wsoil, wsoil_siz, init0)
+      call geti_p2c('ISOIL'  , 'P', isoil, isoil_siz, init0)
+      call geti_p2c('TDIAG'  , 'P', tdiag, tdiag_siz, init0)
+      call geti_p2c('QDIAG'  , 'P', qdiag, qdiag_siz, init0)
+      call geti_p2c('FICE'   , 'P', fice , fice_siz , init0)
+!      call geti_p2c('ST1I'   , 'P', st1i , st1i_siz , init0)
+!      call geti_p2c('PRESI'  , 'P', presi, presi_siz, init0)
+      call geti_p2c('COSAS'  , 'P', cosas  , cosas_siz  , init0)
+      call geti_p2c('MG'     , 'P', mg     , mg_siz     , init0)
+      call geti_p2c('ALVIS'  , 'P', alvis  , alvis_siz  , init0)
+      call geti_p2c('H'      , 'P', h      , h_siz      , init0)
+      call geti_p2c('GLACIER', 'P', glacier, glacier_siz, init0)
+      call geti_p2c('Z0'     , 'P', z0     , z0_siz     , init0)
+      call geti_p2c('Z0T'    , 'P', z0t    , z0t_siz    , init0)
+      call geti_p2c('DLAT'   , 'P', dlat   , dlat_siz   , init0)
+      call geti_p2c('DLON'   , 'P', dlon   , dlon_siz   , init0)
+      call geti_p2c('TSOIL'  , 'P', tsoil  , tsoil_siz  , init0)
+      call geti_p2c('TWATER' , 'P', twater , twater_siz , init0)
+      call geti_p2c('VEGF'   , 'P', vegf   , vegf_siz   , init0)
+      call geti_p2c('FLUSOLIS', 'P', flusolis, flusolis_siz, init0)
+!  KFC variables:
+      if(iconvec == 6) then
+        call geti_p2c('QRKFC'  , 'P', qrkfc  , qrkfc_siz  , init0)
+        call geti_p2c('KFCRF'  , 'P', kfcrf  , kfcrf_siz  , init0)
+        call geti_p2c('KFCSF'  , 'P', kfcsf  , kfcsf_siz  , init0)
+      end if
+!
+
+!
+! Additions to the Permanent bus for deposition variables:
+!
+      call geti_p2c('WD_HSO3', 'P', wd_hso3 , wd_hso3_siz, init0)
+      call geti_p2c('WD_HPXA', 'P', wd_hpxa , wd_hpxa_siz, init0)
+      call geti_p2c('WD_RPXA', 'P', wd_rpxa , wd_rpxa_siz, init0)
+      call geti_p2c('WD_SO4',  'P', wd_so4  , wd_so4_siz , init0)
+      call geti_p2c('WD_NO3',  'P', wd_no3  , wd_no3_siz , init0)
+      call geti_p2c('WD_NH4',  'P', wd_nh4  , wd_nh4_siz , init0)
+      call geti_p2c('WD_CAT',  'P', wd_cat  , wd_cat_siz , init0)
+      call geti_p2c('WD_HCO3', 'P', wd_hco3 , wd_hco3_siz, init0)
+      call geti_p2c('WD_H',    'P', wd_h    , wd_h_siz   , init0)
+      call geti_p2c('WD_SSLT', 'P', wd_sslt , wd_sslt_siz, init0)
+      call geti_p2c('WD_OCBN', 'P', wd_ocbn , wd_ocbn_siz, init0)
+      call geti_p2c('WD_H2O',  'P', wd_h2o  , wd_h2o_siz , init0)
+      call geti_p2c('WD_DUST', 'P', wd_dust , wd_dust_siz, init0)
+      call geti_p2c('WD_BLC',  'P', wd_blc  , wd_blc_siz , init0)
+      call geti_p2c('WD_PCBN', 'P', wd_pcbn , wd_pcbn_siz, init0)
+      call geti_p2c('DD_PSO4', 'P', dd_pso4  , dd_pso4_siz , init0)
+      call geti_p2c('DD_PSS',  'P', dd_pss   , dd_pss_siz  , init0)
+      call geti_p2c('DD_POC',  'P', dd_poc   , dd_poc_siz  , init0)
+      call geti_p2c('DD_PNO3', 'P', dd_pno3  , dd_pno3_siz  , init0)
+      call geti_p2c('DD_PNH4', 'P', dd_pnh4  , dd_pnh4_siz  , init0)
+      call geti_p2c('DD_PCM',  'P', dd_pcm   , dd_pcm_siz  , init0)
+      call geti_p2c('DD_PEC',  'P', dd_pec   , dd_pec_siz  , init0)
+      call geti_p2c('DD_PPC',  'P', dd_ppc   , dd_ppc_siz  , init0)
+      call geti_p2c('DD_SO2',  'P', dd_so2   , dd_so2_siz  , init0)
+      call geti_p2c('DD_H2SO4','P', dd_h2so4 , dd_h2so4_siz, init0)
+      call geti_p2c('DD_NO',   'P', dd_no    , dd_no_siz   , init0)
+      call geti_p2c('DD_NO2',  'P', dd_no2   , dd_no2_siz  , init0)
+      call geti_p2c('DD_O3',   'P', dd_o3    , dd_o3_siz   , init0)
+      call geti_p2c('DD_HNO3', 'P', dd_hno3  , dd_hno3_siz , init0)
+      call geti_p2c('DD_PAN',  'P', dd_pan   , dd_pan_siz  , init0)
+      call geti_p2c('DD_HONO', 'P', dd_hono  , dd_hono_siz , init0)
+      call geti_p2c('DD_RNO3', 'P', dd_rno3  , dd_rno3_siz , init0)
+      call geti_p2c('DD_NH3',  'P', dd_nh3   , dd_nh3_siz  , init0)
+      call geti_p2c('DD_NOY',  'P', dd_noy   , dd_noy_siz  , init0)
+      call geti_p2c('DD_H2O2', 'P', dd_h2o2  , dd_h2o2_siz , init0)
+      call geti_p2c('DD_HCHO', 'P', dd_hcho  , dd_hcho_siz , init0)
+!
+!  Additions to permanent bus for summed emissions in column
+!  for satellite comparisons
+!
+      call geti_p2c('SE_NO' ,    'P', se_no     , se_no_siz    , init0)
+      call geti_p2c('SE_NO2',    'P', se_no2    , se_no2_siz   , init0)
+      call geti_p2c('SE_SO2',    'P', se_so2    , se_so2_siz   , init0)
+      call geti_p2c('SE_CO' ,    'P', se_co     , se_co_siz    , init0)
+      call geti_p2c('SE_NH3',    'P', se_nh3    , se_nh3_siz   , init0)
+      call geti_p2c('SE_BNO',    'P', se_bno    , se_bno_siz   , init0)
+      call geti_p2c('SE_ETHE',   'P', se_ethe   , se_ethe_siz  , init0)
+      call geti_p2c('SE_TOLU',   'P', se_tolu   , se_tolu_siz  , init0)
+      call geti_p2c('SE_HCHO',   'P', se_hcho   , se_hcho_siz  , init0)
+      call geti_p2c('SE_ISOPA',  'P', se_isopa  , se_isopa_siz , init0)
+      call geti_p2c('SE_ISOPB',  'P', se_isopb  , se_isopb_siz , init0)
+      call geti_p2c('SE_MONO',   'P', se_mono   , se_mono_siz  , init0)
+      call geti_p2c('SE_OVOC',   'P', se_ovoc   , se_mono_siz  , init0)
+      call geti_p2c('SE_PM2P5',  'P', se_pm2p5  , se_pm2p5_siz , init0)
+      call geti_p2c('SE_PM10',   'P', se_pm10   , se_pm10_siz  , init0)
+!
+!
+!  Permanent bus variables, for feedback with weather:
+!
+      call geti_p2c('NAERO'    , 'P', naero   , naero_siz , init0)
+! Air density from last chemistry step for consistency:
+      call geti_p2c('C_RHOD'    , 'P', c_rhod   , c_rhod_siz, init0)
+! Layer thickness from last chemistry step for consistency:
+      call geti_p2c('C_THICK'   , 'P', c_thick  , c_thick_siz, init0)
+!
+!  Additions to volatile bus for column totals for satellite comparisons:
+!
+      call geti_p2c('COL_NO'     , 'V', col_no     , col_no_siz      , init0)
+      call geti_p2c('COL_NO2'    , 'V', col_no2    , col_no2_siz     , init0)
+      call geti_p2c('COL_SO2'    , 'V', col_so2    , col_so2_siz     , init0)
+      call geti_p2c('COL_CO'     , 'V', col_co     , col_co_siz      , init0)
+      call geti_p2c('COL_NH3'    , 'V', col_nh3    , col_nh3_siz     , init0)
+      call geti_p2c('COL_ETHE'   , 'V', col_ethe   , col_ethe_siz    , init0)
+      call geti_p2c('COL_TOLU'   , 'V', col_tolu   , col_tolu_siz    , init0)
+      call geti_p2c('COL_HCHO'   , 'V', col_hcho   , col_hcho_siz    , init0)
+      call geti_p2c('COL_ISOPA'  , 'V', col_isopa  , col_isopa_siz   , init0)
+      call geti_p2c('COL_PM2P5'  , 'V', col_pm2p5  , col_pm2p5_siz   , init0)
+      call geti_p2c('COL_PM10'   , 'V', col_pm10   , col_pm10_siz    , init0)
+
+   if (local_dbg) then
+         write(chm_lun_out, *) 'FROM PHYS PER BUS:'
+         write(chm_lun_out, *) 'FTOT     -> (offset, len, init) :', ftot, ftot_siz, init0
+         write(chm_lun_out, *) 'FXP      -> (offset, len, init) :', fxp, fxp_siz, init0
+         write(chm_lun_out, *) 'FDC      -> (offset, len, init) :', fdc, fdc_siz, init0
+         write(chm_lun_out, *) 'FSC      -> (offset, len, init) :', fsc, fsc_siz, init0
+         write(chm_lun_out, *) 'FICE    -> (offset, len, init) :', fice, fice_siz, init0
+         write(chm_lun_out, *) 'LWC     -> (offset, len, init) :', lwc, lwc_siz, init0
+         write(chm_lun_out, *) 'FDSS    -> (offset, len, init) :', fdss, fdss_siz, init0
+         write(chm_lun_out, *) 'FDSI    -> (offset, len, init) :', fdsi, fdsi_siz, init0
+         write(chm_lun_out, *) 'TSURF   -> (offset, len, init) :', tsurf, tsurf_siz, init0
+         write(chm_lun_out, *) 'TVEG    -> (offset, len, init) :', tveg, tveg_siz, init0
+         write(chm_lun_out, *) 'UDIAG   -> (offset, len, init) :', udiag, udiag_siz, init0
+         write(chm_lun_out, *) 'VDIAG   -> (offset, len, init) :', vdiag, vdiag_siz, init0
+         write(chm_lun_out, *) 'GLSEA   -> (offset, len, init) :', glsea, glsea_siz, init0
+         write(chm_lun_out, *) 'SNODP   -> (offset, len, init) :', snodp, snodp_siz, init0
+         write(chm_lun_out, *) 'NT      -> (offset, len, init) :', nt, nt_siz, init0
+         write(chm_lun_out, *) 'WSOIL   -> (offset, len, init) :', wsoil, wsoil_siz, init0
+         write(chm_lun_out, *) 'ISOIL   -> (offset, len, init) :', isoil, isoil_siz, init0
+         write(chm_lun_out, *) 'TDIAG   -> (offset, len, init) :', tdiag, tdiag_siz, init0
+         write(chm_lun_out, *) 'QDIAG   -> (offset, len, init) :', qdiag, qdiag_siz, init0
+         write(chm_lun_out, *) 'FICE    -> (offset, len, init) :', fice, fice_siz, init0
+!         write(chm_lun_out, *) 'ST1I    -> (offset, len, init) :', st1i, st1i_siz, init0
+!         write(chm_lun_out, *) 'PRESI   -> (offset, len, init) :', presi, presi_siz, init0
+         write(chm_lun_out, *) 'COSAS    -> (offset, len, init) :', cosas  , cosas_siz  , init0
+         write(chm_lun_out, *) 'MG       -> (offset, len, init) :', mg     , mg_siz     , init0
+         write(chm_lun_out, *) 'ALVIS    -> (offset, len, init) :', alvis  , alvis_siz  , init0
+         write(chm_lun_out, *) 'H        -> (offset, len, init) :', h      , h_siz      , init0
+         write(chm_lun_out, *) 'GLACIER  -> (offset, len, init) :', glacier, glacier_siz, init0
+         write(chm_lun_out, *) 'Z0       -> (offset, len, init) :', z0     , z0_siz     , init0
+         write(chm_lun_out, *) 'Z0T      -> (offset, len, init) :', z0t    , z0t_siz    , init0
+         write(chm_lun_out, *) 'DLAT     -> (offset, len, init) :', dlat   , dlat_siz   , init0
+         write(chm_lun_out, *) 'DLON     -> (offset, len, init) :', dlon   , dlon_siz   , init0
+         write(chm_lun_out, *) 'TSOIL    -> (offset, len, init) :', tsoil  , tsoil_siz  , init0
+         write(chm_lun_out, *) 'TWATER   -> (offset, len, init) :', twater , twater_siz , init0
+         write(chm_lun_out, *) 'LWC      -> (offset, len, init) :', lwc    , lwc_siz    , init0
+         write(chm_lun_out, *) 'VEGF     -> (offset, len, init) :', vegf   , vegf_siz   , init0
+         write(chm_lun_out, *) 'FLUSOLIS -> (offset, len, init) :', flusolis, flusolis_siz   , init0
+         write(chm_lun_out, *) 'QRKFC    -> (offset, len, init) :', qrkfc  , qrkfc_siz  , init0
+         write(chm_lun_out, *) 'KFCRF    -> (offset, len, init) :', kfcrf  , kfcrf_siz  , init0
+         write(chm_lun_out, *) 'KFCSF    -> (offset, len, init) :', kfcsf  , kfcsf_siz  , init0
+         write(chm_lun_out, *) 'WD_HSO3  -> (offset, len, init) :', wd_hso3 , wd_hso3_siz, init0
+         write(chm_lun_out, *) 'WD_HPXA  -> (offset, len, init) :', wd_hpxa , wd_hpxa_siz, init0
+         write(chm_lun_out, *) 'WD_RPXA  -> (offset, len, init) :', wd_rpxa , wd_rpxa_siz, init0
+         write(chm_lun_out, *) 'WD_SO4   -> (offset, len, init) :', wd_so4  , wd_so4_siz , init0
+         write(chm_lun_out, *) 'WD_NO3   -> (offset, len, init) :', wd_no3  , wd_no3_siz , init0
+         write(chm_lun_out, *) 'WD_NH4   -> (offset, len, init) :', wd_nh4  , wd_nh4_siz , init0
+         write(chm_lun_out, *) 'WD_CAT   -> (offset, len, init) :', wd_cat  , wd_cat_siz , init0
+         write(chm_lun_out, *) 'WD_HCO3  -> (offset, len, init) :', wd_hco3 , wd_hco3_siz, init0
+         write(chm_lun_out, *) 'WD_H     -> (offset, len, init) :', wd_h    , wd_h_siz   , init0
+         write(chm_lun_out, *) 'WD_SSLT  -> (offset, len, init) :', wd_sslt , wd_sslt_siz, init0
+         write(chm_lun_out, *) 'WD_OCBN  -> (offset, len, init) :', wd_ocbn , wd_ocbn_siz, init0
+         write(chm_lun_out, *) 'WD_H2O   -> (offset, len, init) :', wd_h2o  , wd_h2o_siz , init0
+         write(chm_lun_out, *) 'WD_DUST  -> (offset, len, init) :', wd_dust , wd_dust_siz, init0
+         write(chm_lun_out, *) 'WD_BLC   -> (offset, len, init) :', wd_blc  , wd_blc_siz , init0
+         write(chm_lun_out, *) 'WD_PCBN  -> (offset, len, init) :', wd_pcbn , wd_pcbn_siz, init0
+         write(chm_lun_out, *) 'DD_PSO4  -> (offset, len, init) :', dd_pso4 , dd_pso4_siz , init0
+         write(chm_lun_out, *) 'DD_PSS   -> (offset, len, init) :', dd_pss  , dd_pss_siz  , init0
+         write(chm_lun_out, *) 'DD_POC   -> (offset, len, init) :', dd_poc  , dd_poc_siz  , init0
+         write(chm_lun_out, *) 'DD_PNO3  -> (offset, len, init) :', dd_pno3 , dd_pno3_siz  , init0
+         write(chm_lun_out, *) 'DD_PNH4  -> (offset, len, init) :', dd_pnh4 , dd_pnh4_siz  , init0
+         write(chm_lun_out, *) 'DD_PCM   -> (offset, len, init) :', dd_pcm  , dd_pcm_siz  , init0
+         write(chm_lun_out, *) 'DD_PEC   -> (offset, len, init) :', dd_pec  , dd_pec_siz  , init0
+         write(chm_lun_out, *) 'DD_PPC   -> (offset, len, init) :', dd_ppc  , dd_ppc_siz  , init0
+         write(chm_lun_out, *) 'DD_SO2   -> (offset, len, init) :', dd_so2  , dd_so2_siz  , init0
+         write(chm_lun_out, *) 'DD_H2SO4 -> (offset, len, init) :', dd_h2so4, dd_h2so4_siz, init0
+         write(chm_lun_out, *) 'DD_NO    -> (offset, len, init) :', dd_no   , dd_no_siz   , init0
+         write(chm_lun_out, *) 'DD_NO2   -> (offset, len, init) :', dd_no2  , dd_no2_siz  , init0
+         write(chm_lun_out, *) 'DD_O3    -> (offset, len, init) :', dd_o3   , dd_o3_siz   , init0
+         write(chm_lun_out, *) 'DD_HNO3  -> (offset, len, init) :', dd_hno3 , dd_hno3_siz , init0
+         write(chm_lun_out, *) 'DD_PAN   -> (offset, len, init) :', dd_pan  , dd_pan_siz  , init0
+         write(chm_lun_out, *) 'DD_HONO  -> (offset, len, init) :', dd_hono , dd_hono_siz , init0
+         write(chm_lun_out, *) 'DD_RNO3  -> (offset, len, init) :', dd_rno3 , dd_rno3_siz , init0
+         write(chm_lun_out, *) 'DD_NH3   -> (offset, len, init) :', dd_nh3  , dd_nh3_siz  , init0
+         write(chm_lun_out, *) 'DD_NOY   -> (offset, len, init) :', dd_noy  , dd_noy_siz  , init0
+         write(chm_lun_out, *) 'SE_NO    -> (offset, len, init) :', se_no   , se_no_siz   , init0
+         write(chm_lun_out, *) 'SE_NO2   -> (offset, len, init) :', se_no2  , se_no2_siz  , init0
+         write(chm_lun_out, *) 'SE_SO2   -> (offset, len, init) :', se_so2  , se_so2_siz  , init0
+         write(chm_lun_out, *) 'SE_CO    -> (offset, len, init) :', se_co   , se_co_siz   , init0
+         write(chm_lun_out, *) 'SE_NH3   -> (offset, len, init) :', se_nh3  , se_nh3_siz  , init0
+         write(chm_lun_out, *) 'SE_BNO   -> (offset, len, init) :', se_bno  , se_bno_siz  , init0
+         write(chm_lun_out, *) 'NAERO    -> (offset, len, init) :', naero   , naero_siz   , init0
+
+         write(chm_lun_out, *) '-----------------------------------------------------'
+         write(chm_lun_out, *) ' '
+   endif
+!
+!      Get from the PHYS. VOL. bus.
+!
+      call geti_p2c('KT'      , 'V', kt      ,  kt_siz     , init0)
+      call geti_p2c('KM'      , 'V', km      , km_siz      , init0)
+      if(istcond == 4) then
+        call geti_p2c('RNFLX'   , 'V', rnflx   , rnflx_siz   , init0)
+        call geti_p2c('SNOFLX'  , 'V', snoflx  , snoflx_siz  , init0)
+        call geti_p2c('CLS'     , 'V', cls     , cls_siz     , init0)
+        call geti_p2c('CLR'     , 'V', clr     , clr_siz     , init0)
+        call geti_p2c('FEVP'    , 'V', fevp    , fevp_siz    , init0)
+        call geti_p2c('F12'     , 'V', f12     , f12_siz     , init0)
+      end if
+!  MY variables:
+      if(istcond == 12) then
+        call geti_p2c('PRFLXKY'   , 'V', prflxky    , prflxky_siz     , init0)
+        call geti_p2c('SWFLXKY'   , 'V', swflxky    , swflxky_siz     , init0)
+        call geti_p2c('F12KY'     , 'V', f12ky      , f12ky_siz       , init0)
+        call geti_p2c('FEVPKY'    , 'V', fevpky     , fevpky_siz      , init0)
+      end if
+! Feedback variables
+      call geti_p2c('NCOUT'    , 'V', ncout   , ncout_siz , init0)
+!
+!
+      call geti_p2c('UE'      , 'V', ue      , ue_siz      , init0)
+      call geti_p2c('ZA'      , 'V', za      , za_siz      , init0)
+      call geti_p2c('PHIT0'   , 'V', phit0   , phit0_siz   , init0)
+      call geti_p2c('RIB'     , 'V', rib     , rib_siz     , init0)
+      call geti_p2c('KCL'     , 'V', kcl     , kcl_siz     , init0)
+      call geti_p2c('CTUE'    , 'V', ctue    , ctue_siz    , init0)
+      call geti_p2c('CANG'    , 'V', cang    , cang_siz    , init0)
+      call geti_p2c('RHOD'    , 'V', rhod    , rhod_siz    , init0)
+      call geti_p2c('PR'      , 'V', pr      , pr_siz      , init0)
+      call geti_p2c('RAINRATE', 'V', rainrate, rainrate_siz, init0)
+      call geti_p2c('UPHYTD'  , 'V', uphytd  , uphytd_siz  , init0)
+      call geti_p2c('VPHYTD'  , 'V', vphytd  , vphytd_siz  , init0)
+      call geti_p2c('TPHYTD'  , 'V', tphytd  , tphytd_siz  , init0)
+      call geti_p2c('HUPHYTD' , 'V', huphytd , huphytd_siz, init0)
+      if(istcond == 12) then
+        call geti_p2c('QBPHYTD' , 'V', qbphytd , qbphytd_siz, init0)
+      else
+        call geti_p2c('QCPHYTD' , 'V', qcphytd , qcphytd_siz, init0)
+      end if
+!      call geti_p2c('QIPHYTD', 'V', qiphytd  , qiphytd_siz, init0)
+!      call geti_p2c('QRPHYTD', 'V', qrphytd  , qrphytd_siz, init0)
+!      call geti_p2c('QGPHYTD', 'V', qgphytd  , qgphytd_siz, init0)
+!      call geti_p2c('QHPHYTD', 'V', qhphytd  , qhphytd_siz, init0)
+!      call geti_p2c('QNPHYTD', 'V', qnphytd  , qnphytd_siz, init0)
+      call geti_p2c('PSN'     , 'V', psn     , psn_siz    , init0)
+      call geti_p2c('RT'      , 'V', rt      , rt_siz     , init0)
+      call geti_p2c('MOL'     , 'V', mol     , mol_siz    , init0)
+      call geti_p2c('RR'      , 'V', rr      , rr_siz     , init0)
+      call geti_p2c('RC'      , 'V', rc      , rc_siz     , init0)
+      call geti_p2c('TVE'     , 'V', tve     , tve_siz    , init0)
+      call geti_p2c('HV'      , 'V', hv      , hv_siz     , init0)
+
+   if (local_dbg) then
+         write(chm_lun_out, *)  'FROMPHYS VOL BUS:'
+         write(chm_lun_out, *) 'KT       -> (offset, len, init)  :', kt      , kt_siz      , init0
+         if(istcond == 4) then
+           write(chm_lun_out, *) 'RNFLX    -> (offset, len, init)  :', rnflx   , rnflx_siz   , init0
+           write(chm_lun_out, *) 'SNOFLX   -> (offset, len, init)  :', snoflx  , snoflx_siz  , init0
+           write(chm_lun_out, *) 'CLS      -> (offset, len, init)  :', cls     , cls_siz     , init0
+           write(chm_lun_out, *) 'CLR      -> (offset, len, init)  :', clr     , clr_siz     , init0
+           write(chm_lun_out, *) 'FEVP     -> (offset, len, init)  :', fevp    , fevp_siz    , init0
+           write(chm_lun_out, *) 'F12      -> (offset, len, init)  :', f12     , f12_siz     , init0
+         end if
+      if(istcond == 12) then
+           write(chm_lun_out, *) 'PRFLXKY    -> (offset, len, init)  :', prflxky    , prflxky_siz     , init0
+           write(chm_lun_out, *) 'SWFLXKY    -> (offset, len, init)  :', swflxky    , swflxky_siz     , init0
+           write(chm_lun_out, *) 'F12KY      -> (offset, len, init)  :', f12ky      , f12ky_siz       , init0
+           write(chm_lun_out, *) 'FEVPKY     -> (offset, len, init)  :', fevpky     , fevpky_siz      , init0
+      end if
+         write(chm_lun_out, *) 'KM       -> (offset, len, init)  :', km      , km_siz      , init0
+         write(chm_lun_out, *) 'UE       -> (offset, len, init)  :', ue      , ue_siz      , init0
+         write(chm_lun_out, *) 'ZA       -> (offset, len, init)  :', za      , za_siz      , init0
+         write(chm_lun_out, *) 'PHIT0    -> (offset, len, init)  :', phit0   , phit0_siz   , init0
+         write(chm_lun_out, *) 'RIB      -> (offset, len, init)  :', rib     , rib_siz     , init0
+         write(chm_lun_out, *) 'KCL      -> (offset, len, init)  :', kcl     , kcl_siz     , init0
+         write(chm_lun_out, *) 'CTUE     -> (offset, len, init)  :', ctue    , ctue_siz    , init0
+         write(chm_lun_out, *) 'CANG     -> (offset, len, init)  :', cang    , cang_siz    , init0
+         write(chm_lun_out, *) 'RHOD     -> (offset, len, init)  :', rhod    , rhod_siz    , init0
+         write(chm_lun_out, *) 'PR       -> (offset, len, init)  :', pr      , pr_siz      , init0
+         write(chm_lun_out, *) 'RAINRATE -> (offset, len, init)  :', rainrate, rainrate_siz, init0
+         write(chm_lun_out, *) 'UPHYTD   -> (offset, len, init)  :', uphytd  , uphytd_siz  , init0
+         write(chm_lun_out, *) 'VPHYTD   -> (offset, len, init)  :', vphytd  , vphytd_siz  , init0
+         write(chm_lun_out, *) 'TPHYTD   -> (offset, len, init)  :', tphytd  , tphytd_siz  , init0
+         if(istcond == 12) then
+           write(chm_lun_out, *) 'QBPHYTD  -> (offset, len, init)  :', qbphytd , qbphytd_siz , init0
+         else
+           write(chm_lun_out, *) 'QCPHYTD  -> (offset, len, init)  :', qcphytd , qcphytd_siz , init0
+         end if
+         write(chm_lun_out, *) 'QRPHYTD  -> (offset, len, init)  :', qrphytd , qrphytd_siz , init0
+         write(chm_lun_out, *) 'QIPHYTD  -> (offset, len, init)  :', qiphytd , qiphytd_siz , init0
+         write(chm_lun_out, *) 'QGPHYTD  -> (offset, len, init)  :', qgphytd , qgphytd_siz , init0
+         write(chm_lun_out, *) 'QHPHYTD  -> (offset, len, init)  :', qhphytd , qhphytd_siz , init0
+         write(chm_lun_out, *) 'QNPHYTD  -> (offset, len, init)  :', qnphytd , qnphytd_siz , init0
+         write(chm_lun_out, *) 'HUPHYTD  -> (offset, len, init)  :', huphytd , huphytd_siz , init0
+         write(chm_lun_out, *) 'PSN      -> (offset, len, init)  :', psn     , psn_siz     , init0
+         write(chm_lun_out, *) 'RT       -> (offset, len, init)  :', rt      , rt_siz      , init0
+         write(chm_lun_out, *) 'MOL      -> (offset, len, init)  :', mol     , mol_siz     , init0
+         write(chm_lun_out, *) 'RR       -> (offset, len, init)  :', rr      , rr_siz      , init0
+         write(chm_lun_out, *) 'RC       -> (offset, len, init)  :', rc      , rc_siz      , init0
+         write(chm_lun_out, *) 'TVE      -> (offset, len, init)  :', tve     , tve_siz     , init0
+         write(chm_lun_out, *) 'HV       -> (offset, len, init)  :', hv      , hv_siz      , init0
+         write(chm_lun_out, *) 'NCOUT    -> (offset, len, init)  :', ncout   , ncout_siz   , init0
+         write(chm_lun_out, *) '-----------------------------------------------------'
+         write(chm_lun_out, *) ' '
+   endif
+   return
+end

@@ -1,0 +1,156 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_utils_mod.ftn90
+! Creation       : P. Huang, Apr. 2008
+! Description    :
+!
+!
+!============================================================================
+
+module mach_cam_utils_mod
+
+   implicit none
+   save
+   real boltzk, delt
+
+   integer idebug, idrydep, iincld, iblcld
+
+   real     cam       ! cam version also a plag to turn on (10.) or off (1.) online sulfate chemistry scheme
+   integer  imm       ! flag for mixing ratio output in kg/kg
+   integer  ima       ! flag for mass conc output in ug/m**3
+   integer  inu       ! flag for number conc. output
+   integer  icob      ! size bin number with which coagulation will apply
+
+   integer  icoag     ! time step interval for calculation of coagulation coefficient for PM
+   integer  i_ss      ! switch for scheme of sea-salt surface flux (GONG_MONAHAN'S SCHEME)
+   integer  isize     ! number of size bins
+
+   integer, parameter :: maxnsg = 12  ! No. of gas/part species (12)
+   integer, parameter :: maxnsaq = 13 ! No. of Aqueous species  (13)
+   integer, parameter :: maxcnz = 1
+   integer, parameter :: maxnsp = 9
+   integer, parameter :: maxns = 47   ! No of gas-phase chemistry species
+
+
+   contains
+!============================================================================
+! Name           : sigmacal
+!
+! Creation       : P. Huang, Mar. 2008 for adapting AURAMS version CAM
+!                  P. Huang, Dec. 2007 for GEM-MACH
+!
+! Description    : 1. Calculate interface values of sigma for CAM model
+!                  2. Check tracer mass for CAM model
+!
+! Extra info     : Varify size bin configration
+!
+! Arguments:  IN
+!               sig            -> Local sigma values
+!               ni             -> No. x-direction (W-E) gridpoints
+!               nk             -> No. z-direct. vertical levels
+!
+!             OUT
+!               SHJ           -> Local mid-layer sigma value
+!               SHTJ          -> Local interface (top) sigma value
+!               DSHJ          -> Sigma difference of bottom and top of a layer
+!
+!============================================================================
+
+   subroutine sigmacal(SHJ, SHTJ, DSHJ, schm, sig, ni, nk)
+
+      implicit none
+      integer, intent(in)  :: ni, nk, schm
+      real,    intent(in)  :: sig (ni, nk)
+      real,    intent(out) :: shj(ni, nk), shtj(ni, nk+1), dshj(ni, nk)
+      integer              :: i, k
+
+      do i = 1, ni
+         shtj(i, 1) = sig(i, 1)
+         do  k = 2, nk
+            shtj(i, k) = (sig(i, k) + sig(i, k-1)) / 2
+         end do
+         shtj(i, nk + 1) = sig(i, nk)
+         do k = 1, nk
+            shj(i, k) = sig(i, k)
+            dshj(i, k) = shtj(i, k + 1) - shtj(i, k)
+         end do
+      end do
+
+      return
+   end subroutine sigmacal
+
+!============================================================================
+! Name           : chk_trc
+!
+! Creation       : P. Huang, Mar. 2008 for CAM in GEM-MACH
+!
+! Description    : Check tracer value to avoid any unreasonable tracer value crashing run of CAM
+!
+! Arguments:  IN
+!               trac            -> Tracer array to be checked
+!               ik              -> ik = 0 tracer array without moon level; ik = 1 tracer array with moon level
+!               F_chm_ni             -> No. x-direction (W-E) gridpoints
+!               lev             -> No. z-direct. vertical levels
+!               IL1             -> Start No. x-direct.
+!               IL2             -> End No. x-direct.
+!               ntr             -> Number of total tracers for trac
+!               strt_trci       -> Start index of the tracers to be checked
+!               end_trci        -> End index of the tracers to be checked
+!               JLAT            -> J Slice number
+!               where_str       -> Identifier shows location of this ckecking process applied
+!               f_step          -> Time step in current
+!               ipass           -> Identifier to print location of each call when ipass = 9
+!
+!             OUT
+!
+!============================================================================
+
+   subroutine chk_trc(trac, ik, F_chm_ni, lev, IL1, IL2, ntr, strt_trci, end_trci, JLAT, where_str, f_step, ipass)
+
+   implicit none
+   integer,     intent(in)  :: ik, F_chm_ni, lev, il1, il2, ntr, strt_trci, end_trci, jlat, f_step, ipass
+   real,        intent(in)  :: trac(F_chm_ni, lev, ntr)
+   character*8, intent(in)  :: where_str
+   integer                  :: n, id, jd, itr, dlev, it, i, l
+   logical                  :: ldebug
+
+      ldebug = .false.
+      do n = strt_trci, end_trci
+         do l = 1, lev - ik
+            do i = il1, il2
+               if (trac(i, l + ik, n) > 0.1 .or. trac(i, l + ik, n) < 0.0) then
+                  ldebug = .true.
+                  dlev = l
+                  id = i
+                  jd = jlat
+                  itr = n
+                  it = f_step
+               end if
+            end do
+         end do
+      end do
+      if (ldebug) then
+         write (0, *)' tracer concentration is too high or negative'
+         write (0, *)' overflow is likely. program stops at:', where_str
+         write (0, *)' tracer ', itr, '= ', trac(id, dlev + ik, itr)
+         write (0, *)' dlev    id      jd    itr      it '
+         write (0, *)dlev,    id,      jd,    itr,      it
+         call chm_stop('mach_cam_utils_mod ', -1)
+      else
+         if (ipass.eq.9) write (0, *)'tracer concentration checking is passed at:  ', where_str
+      end if
+
+      return
+   end subroutine chk_trc
+
+end module mach_cam_utils_mod

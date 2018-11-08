@@ -1,0 +1,83 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_input_check.ftn90
+! Creation       : S. Menard, Feb 2008.
+! Description    : This subroutine is intend to do quality check of meteorological
+!                  INPUT field. Here we modified the values of vertical diffusion
+!                  obtain from the GEM model.
+!
+! Extra info     :
+!
+! Arguments      :
+!                 IN
+!                     kt_old       => Vertical diffusion from GEM
+!                     gzmoins6     => Geopotentiel Height
+!                     bd_height    => Boundary layer height
+!                     f_chm_ni     => Grid dimension along X
+!                     nk           => Number of vertical level
+!                 OUT
+!                     KT_NEW       => vertical diffusion for GEM-MACH
+!
+!============================================================================
+
+
+subroutine mach_input_check(KT_NEW, kt_old, gzmoins6, bd_height, sx, ux, lfu, lucprm, f_chm_ni, nk)
+
+   use chm_consphychm_mod, only:grav
+   implicit none
+
+!  Arguments
+
+   integer, intent(in)   :: nk, f_chm_ni, lucprm
+   real,    intent(in)   :: gzmoins6(f_chm_ni, nk)
+   real,    intent(in)   :: sx (f_chm_ni), ux(f_chm_ni)
+   real,    intent(in)   :: bd_height(f_chm_ni)
+   real,    intent(in)   :: lfu(f_chm_ni,lucprm)
+   real,    intent(in)   :: kt_old(f_chm_ni, nk)
+   real,    intent(out)  :: kt_new(f_chm_ni, nk)
+
+!  Declaration of local variables.
+
+   real fkw, min_kt, topheight
+   real,    parameter    :: min_kt_urban = 1.0, min_kt_rural = 0.01, max_kt = 1500.0, fkarm=0.4, anemo=10.0
+   integer  i, k
+
+
+!  Set minimum and maximum values for vertical diffusion (KT)
+
+   do k = 1, nk
+      do i = 1, f_chm_ni
+! bilinear interpolation in urban land use:
+             min_kt = min_kt_rural * min(max(0.0,1.0-lfu(i,lucprm)),1.0) &
+                  + min_kt_urban * min(max(0.0,lfu(i,lucprm)), 1.0)
+             topheight = bd_height(i)*grav * min(max(0.0,1.0-lfu(i,lucprm)),1.0) &
+                  + 2000.0  * min(max(0.0,lfu(i,lucprm)), 1.0)
+         if ((gzmoins6(i, k) - gzmoins6(i, nk)) <= topheight) then
+             kt_new(i, k) = max(min_kt,kt_old(i,k))
+         else
+            kt_new(i, k) = max(min_kt_rural, kt_old(i,k))
+         end if
+      end do
+   end do
+
+! Patch KT at first level (nk)
+
+  do i = 1, f_chm_ni
+     fkw = (fkarm * ux(i) * anemo) / (max (0.0, sx(i)))
+     min_kt = min_kt_rural * min(max(0.0,1.0-lfu(i,lucprm)),1.0) &
+            + min_kt_urban * min(max(0.0,lfu(i,lucprm)), 1.0)
+
+     kt_new(i, nk) = max (min_kt, fkw)
+
+  end do
+
+end subroutine mach_input_check

@@ -1,0 +1,252 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_debu.ftn90
+! Creation       : A. Kallaur (MSC/ARQI) and V. Lee (MSC/RPN) April 2005
+! Description    : Initialization of the chemistry at the beginning
+!                  of each execution of the model.
+!                  1) it checks the options to make sure they
+!                     are valid and compatible.
+!                  2) it initializes a few constants necessary
+!                     for the execution of the chemistry package.
+!                  3) it constructs the 3 main buses dictionaries.
+!                  4) Transfers essential parameters (grid dim., topo. , etc)
+!                     from GEMDM code to the chemical world to function correctly.
+!
+! Extra info     : Templated for the chemistry interface according to
+!                  "phydebu4" written by:  B. Bilodeau (Spring 1994)
+!
+!Arguments IN
+!            l_n{i, j, k}       --> Local dimensions (from GEM)
+!            hybm               --> model hybrid level
+!            indat            --> 14 element integer array containing RPN
+!            Ptopo_myrow      --> local row    number in processor topology
+!            Ptopo_mycol      --> local column number in processor topology
+!            Ptopo_npex       --> number of processors along X
+!            Ptopo_npey       --> number of processors along Y
+!            gem_chm_n{i, j}   --> Local horizontal dimensions (following physics
+!                                 conventions in itf_phy_init -> from GEM)
+!            gem_chm_off{i, j} --> Local offesets(following physics
+!                                 conventions in itf_phy_init -> from GEM)
+!            G_n{i, j, k}       --> number of points along i, j, k globally from GEM
+!            l_{i, j}0         --> global index of local subdomain
+!
+!            north            --> GEM equiv. to north =1 if touching north boundary for LAM
+!            east             --> GEM equiv. to east  =1 if touching east  boundary for LAM
+!            west             --> GEM equiv. to west  =1 if touching west  boundary for LAM
+!            south            --> GEM equiv. to south =1 if touching south boundary for LAM
+
+
+
+!            Lun_out          --> logical switch to print on stdout. Also contains
+!                                 LUN onto which to print. A copy is made to the
+!                                 chemical world -> chm_lun_out, and is found in the
+!                                 chm_lun.cdk file.
+!            cbk_const        --> logical function call_back(real val(nbre),      &
+!                                                            character*(*) liste, &
+!                                                            integer nbre,        &
+!                                                            integer unout )
+!          OUT
+!            dimbuse  --> dimension of the entry    memory bus
+!            dimbusd  --> dimension of the dynamics memory bus
+!            dimbusp  --> dimension of the physics  memory bus
+!            dimbusv  --> dimension of the volatile memory bus
+!
+!=============================================================================
+subroutine chm_debu(l_ni       , l_nj       , l_nk        , hybm        ,indat       ,  &
+                    Ptopo_myrow, Ptopo_mycol, Ptopo_npex  , Ptopo_npey  ,  &
+                    gem_chm_ni , gem_chm_nj , gem_chm_offi, gem_chm_offj,  &
+                    G_ni       , G_nj        , G_nk       ,               &
+                    l_i0       , l_j0        ,                           &
+                    north      , east        , west       , south       ,  &
+                    DIMBUSE    , DIMBUSD     , DIMBUSP    , DIMBUSV     ,  &
+                    Lun_out    , cbk_const   , istcond    , iconvec     ,  &
+                    Cstv_dt_8  , dtime_delay )
+   use chm_utils_mod
+   use chm_buses_mod
+   use chm_nml_mod
+   use chm_datime_mod
+   use chm_ptopo_grid_mod
+   use chm_headers_mod, only: chm_inctphychm, chm_getphybus_struct
+   use mach_gas_chemicbi_mod
+   use mach_cam_utils_mod, only: isize
+   implicit none
+#include "chm_aerosize.cdk"
+
+! Arguments
+   integer, intent(in) :: l_ni, l_nj, l_nk, istcond, iconvec
+   integer, intent(in) :: l_i0, l_j0
+   integer, intent(in) :: G_ni, G_nj, G_nk
+   integer, intent(in) :: north, east, west, south
+   integer, intent(in) :: Lun_out, indat
+   integer, intent(in) :: gem_chm_ni, gem_chm_nj, gem_chm_offi, gem_chm_offj
+   integer, intent(in) :: Ptopo_myrow, Ptopo_mycol
+   integer, intent(in) :: Ptopo_npex , Ptopo_npey
+   real   , intent(in) :: hybm(l_nk)
+   real*8 , intent(in) :: Cstv_dt_8
+   integer, intent(out) :: dimbuse, dimbusd, dimbusp, dimbusv
+   real*8 , intent(out) :: dtime_delay
+
+! External variables/functions
+
+   logical  cbk_const, getindx
+   external cbk_const, getindx
+   external datp2f, difdatr
+! Local variables
+
+   integer nk, i, j, ne, date3
+   integer date_chm
+   real*8  dnt_all
+! Make local copies of GEM grid topo and lun parameters
+
+   chm_ni        = gem_chm_ni
+   chm_nj        = gem_chm_nj
+   chm_offi      = gem_chm_offi
+   chm_offj      = gem_chm_offj
+   nk            = G_nk
+   chm_lun_out   = 666
+   chm_l_ni      = l_ni
+   chm_l_nj      = l_nj
+   chm_l_nk      = l_nk
+   chm_G_ni      = G_ni
+   chm_G_nj      = G_nj
+   chm_G_nk      = G_nk
+   chm_l_i0      = l_i0
+   chm_l_j0      = l_j0
+   chm_north     = north
+   chm_east      = east
+   chm_west      = west
+   chm_south     = south
+   c_Ptopo_mycol = Ptopo_mycol
+   c_Ptopo_myrow = Ptopo_myrow
+   c_Ptopo_npex  = Ptopo_npex
+   c_Ptopo_npey  = Ptopo_npey
+
+!  Only the init processor can output
+!  sending output of other processors to /dev/null
+   if (lun_out <= 0) then
+      open(chm_lun_out, file='/dev/null', status='old')
+   else
+      chm_lun_out = lun_out
+   end if
+
+   write(chm_lun_out, *) 'In chm_debu:'
+   write(chm_lun_out, *) 'nk                = ', nk
+   write(chm_lun_out, *) 'chm_ni, chm_ni       = ', chm_ni, chm_ni
+   write(chm_lun_out, *) 'chm_offi, chm_offi   = ', chm_offi, chm_offi
+   write(chm_lun_out, *) 'chm_l_{ni, nj, nk}    = ', chm_l_ni, chm_l_nj, chm_l_nk
+   write(chm_lun_out, *) 'chm_l_i0, chm_l_j0   = ', chm_l_i0, chm_l_j0
+   write(chm_lun_out, *) 'Lam N, E, W, S(proc 0) = ', chm_north, chm_east, chm_west, chm_south
+   write(chm_lun_out, *) 'c_Ptopo_my{col, row} = ', c_Ptopo_mycol, c_Ptopo_myrow
+   write(chm_lun_out, *) 'c_Ptopo_npe{x, y}    = ', c_Ptopo_npex, c_Ptopo_npey
+
+! Check value set for key nk_start
+   if ((nk_start <= 0) .or. (nk_start > chm_l_nk)) then
+      write(0, *) '### Error in chm_debu     ###'
+      write(0, *) '# nk_start value must be between 1 and chm_l_nk: ', nk_start, chm_l_nk
+      write(0, *) '###         ABORT         ###'
+      call chm_stop('chm_debu ', -1)
+   end if
+
+!     Transfer the date/time stamp from the GEM model to a common
+!     block in the chemistry. This calculation used to take place in
+!     subroutine chm_getdattim (now defunct)
+
+   call newdate(indat, chm_dttim, date3, -4)
+   ne = 14
+   write(chm_lun_out, *) 'In chm_getdattim2:'
+   do i=1, ne
+      write(chm_lun_out, *) 'chm_dttim(', i, ')= ', chm_dttim(i)
+   enddo
+   write(chm_lun_out, *) 'Exit chm_getdattim2'
+   write(chm_lun_out, *) ' '
+
+!     Estimate if there is a delayed start of the chemistry and calculate
+!     time interval in seconds
+
+      dtime_delay = 0.0d0
+   if (chm_strt_s /= undefined ) then
+      call datp2f ( date_chm, chm_strt_s )
+      call difdatr( date_chm, indat, dtime_delay)
+      dtime_delay = dtime_delay * secondsin1hour
+      if (dtime_delay < 0.0d0 ) then
+         dtime_delay = 0.0d0
+         write(chm_lun_out, *) 'Chemistry start time prior to meteorology. Reset to Mod_runstrt_s '
+      else
+         write(chm_lun_out, *) 'Chemistry will start with a ',dtime_delay/3600.,' -hour delay'
+      endif
+   endif
+      chm_time_delay = dtime_delay
+
+!
+!  Fill up common block in aerosize.cdk
+!  Copy the aerosol size bins to the bin boundary array and
+!  convert units from um to m:
+!
+      aerosize1 = 0.0
+      aerosizeb = 0.0
+    print *, 'isize : ', isize
+        do j=1,isize
+         aerosize1(1,j) = aerosize(j)*1.E-06
+         aerosize1(2,j) = aerosize(j+1)*1.E-06
+         aerosizeb(j) = aerosize(j)*1.E-06
+        end do
+        aerosizeb(isize+1) = aerosize(isize+1)*1.E-06
+!
+!  assign the namelist flags for direct and indirect feedbacks to
+!  common block variables
+!
+        chm_direct = chm_direct_l
+        chm_indirect = chm_indirect_l
+!
+          dnt_all = dtime_delay / Cstv_dt_8
+          chm_strt_step = nint(dnt_all) + 1
+        print *, 'chm_strt_step : ', chm_strt_step
+!
+!     Boundary conditions for gas solver depends on model levels, Initialize required values
+      call init_c2h6(l_nk, hybm)
+
+!     Obtain the necessary physics field variable information
+!     offsets, lengths, etc ... and store into local
+!     data structures (common blocks for now -> Nov 2006) in the
+!     chemical coding.
+!     NOTE: The physics Init. MUST HAVE already executed in
+!           order to have correct results from chm_getphybus_struct.
+
+   call chm_getphybus_struct(getindx, istcond, iconvec )
+
+if (.not. chm_inctphychm(cbk_const)) then
+   write (chm_lun_out, *) 'Problem initializating chemical/ physical constants in (S/R chm_inctphychm)'
+   call chm_stop('chm_debu', -1)
+endif
+
+
+!
+!---------------------------------------------------------------------
+!
+!     CONSTRUCTION OF THE 4 MAIN BUS DICTIONARIES FOR CHEMISTRY:
+!     - - - - - - - - - - - - - - - - - - - - - - -
+!     CHMBUSENT, CHMBUSDYN, CHMBUSPER and CHMBUSVOL
+!     - - - - - - - - - - - - - - - - -
+!
+!---------------------------------------------------------------------
+!
+   call chm_ini(nk, chm_ni)
+   chmbuslck = .true.
+   dimbuse = chmenttop
+   dimbusd = chmdyntop
+   dimbusp = chmpertop
+   dimbusv = chmvoltop
+   write(chm_lun_out, *) 'In chm_debu: '
+   write(chm_lun_out, *) 'dimbuse, dimbusd, dimbusp, dimbusv:', dimbuse, dimbusd, dimbusp, dimbusv
+
+   return
+end

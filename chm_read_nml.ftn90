@@ -1,0 +1,465 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_read_nml.ftn90
+! Creation       : S. Menard, H. Landry, A. Kallaur,  mars 2006
+! Description    : Read chemical namelist "&chem_cfgs"
+!
+! Extra info     : This is one of the few files that can't use chm_lun_out
+!                  because it is called before chm_debu; where chm_lun_out
+!                  is correctly set
+!
+! Arguments: IN
+!              fn                --> Filename
+!              lun_out           --> Unit number to
+!            OUT
+!              out_chm_model_L   --> TRUE:  if chemistry activated
+!              out_chm_bc_prof_l --> TRUE:  use chemistry profiles as boundary
+!                                           conditions
+!                                    FALSE: use prepared chemistry boundary
+!                                           conditions provided in the pilot
+!                                           input files
+!
+!==============================================================================
+
+integer function chm_read_nml(fn, OUT_CHM_MODEL_L, OUT_CHM_BC_PROF_L, lun_out)
+   use chm_utils_mod
+   use chm_nml_mod
+   use chm_species_info_mod
+   use chm_mjrpts_species_idx_mod
+   use chm_datime_mod
+   use chm_headers_mod, only: chm_pkg_fields_init
+   use mach_cam_utils_mod
+   implicit none
+
+   character*(*), intent(in)  :: fn
+   logical,       intent(out) :: out_chm_model_L, out_chm_bc_prof_l
+   integer,       intent(in)  :: lun_out
+
+!     Local variables
+
+   integer       unf, read_status
+   integer       ierr
+   integer       fnom, fclos
+   external      fnom, fclos
+
+   out_chm_model_L = .false.
+   unf              = 0
+   chm_read_nml     = -1
+
+   if (lun_out > 0) then
+      write(lun_out, *) 'Opening file: ' , fn
+   end if
+   if (fnom(unf, fn, 'SEQ+FTN+FMT+OLD', 0) /= 0) then
+         if (lun_out > 0) then
+            write(lun_out, *) 'file ', fn, ' not available - abort'
+         end if
+      return
+   endif
+
+!     Assign default values for the chem_cfgs namelist variables.
+   chm_strt_s           = undefined
+   chm_bc_prof_l        = .true.
+   chm_model_s          = 'MACH'
+   chm_pkg_gas_s        = 'ADOM2'
+   chm_pkg_pm_s         = 'CAM2BINS'
+   chm_get_ae_emis_l    = .true.
+   chm_get_be_emis_l    = .true.
+   chm_get_mj_emis_l    = .true.
+   chm_biog_s           = 'BEIS3.09'
+   chm_gas_drydep_s     = 'ROBICHAUD'
+   chm_soa_s            = 'JIANG'
+   chm_vert_diff_s      = 'FLUX'
+   chm_mj_treatment_s   = 'PLUMERISE'
+   chm_seaflux_s        = 'GONG_MONAHAN'
+   chm_winddust_s       = 'CAM_WINDDUST'
+   chm_hetchem_s        = 'HETV'
+   chm_hetchem_metstlb_l= .true.
+   chm_step_factor      = 1
+   em_dt_strt_s         = undefined
+   em_dt_end_s          = undefined
+   em_nesdt             = 3600.0
+   chm_pm_drydep_s      = 'ZHANG'
+   chm_aqueous_s        = 'GONG'
+   chm_incld_l          = .true.
+   chm_blcld_l          = .true.
+   chm_gaschem_online_l = .true.
+   chm_pm_coag_step_intvl = 1
+   chm_debug_2d_i       = 0
+   chm_debug_3d_i       = 0
+   chm_intrsec_ndiv     = 1
+   chm_intrsec_ver      = 1
+   chm_aqhi_l           = .false.
+   chm_direct_l         = .false.  
+   chm_indirect_l       = .false. 
+
+!
+   jd                   = 1
+   id                   = 1
+   dlev                 = 1
+   it                   = 1
+   itr                  = 1
+
+!  Miscellaneous initialisations
+   done_mjpts_sort   = .false.
+   done_mjpts_cnx_main_specie_list   = .false.
+
+   rewind(unf)
+   read  (unf, nml = chem_cfgs, iostat = read_status)
+   if (read_status > 0) then
+      write (0, *) ' Error in reading namelist chem_cfgs (s/r chm_read_nml)'
+      write (0, *) 'Read status = ', read_status
+      return
+   else if (read_status < 0) then
+      write (0, *) ' No chem_cfgs found in gem_settings --> no chemistry!!!!'
+      chm_read_nml     = 0
+      out_chm_model_L = .false.
+      out_chm_bc_prof_l = .false.
+      return
+   endif
+   ierr = fclos (unf)
+      if (lun_out > 0) then
+         write(lun_out, *) 'Values read from chem_cfgs namelist:'
+         write(lun_out, *) 'chm_strt_s = '             , chm_strt_s
+         write(lun_out, *) 'chm_model_s = '            , chm_model_s
+         write(lun_out, *) 'chm_bc_prof_l = '          , chm_bc_prof_l
+         write(lun_out, *) 'chm_pkg_gas_s = '          , chm_pkg_gas_s
+         write(lun_out, *) 'chm_pkg_pm_s = '           , chm_pkg_pm_s
+         write(lun_out, *) 'chm_biog_s  = '            , chm_biog_s
+         write(lun_out, *) 'chm_get_ae_emis_l = '      , chm_get_ae_emis_l
+         write(lun_out, *) 'chm_get_be_emis_l = '      , chm_get_be_emis_l
+         write(lun_out, *) 'chm_get_mj_emis_l = '      , chm_get_mj_emis_l
+         write(lun_out, *) 'chm_gas_drydep_s  = '      , chm_gas_drydep_s
+         write(lun_out, *) 'chm_soa_s  = '             , chm_soa_s
+         write(lun_out, *) 'chm_vert_diff_s  ='        , chm_vert_diff_s
+         write(lun_out, *) 'chm_mj_treatment_s  ='     , chm_mj_treatment_s
+         write(lun_out, *) 'chm_seaflux_s  ='          , chm_seaflux_s
+         write(lun_out, *) 'chm_winddust_s  ='         , chm_winddust_s
+         write(lun_out, *) 'chm_hetchem_s  ='          , chm_hetchem_s
+         write(lun_out, *) 'chm_hetchem_metstlb_l ='   , chm_hetchem_metstlb_l
+         write(lun_out, *) 'chm_step_factor = '        , chm_step_factor
+         write(lun_out, *) 'em_dt_strt_s = '           , em_dt_strt_s
+         write(lun_out, *) 'em_dt_end_s  = '           , em_dt_end_s
+         write(lun_out, *) 'em_nesdt     = '           , em_nesdt
+         write(lun_out, *) 'chm_pm_drydep_s = '        , chm_pm_drydep_s
+         write(lun_out, *) 'chm_aqueous_s = '          , chm_aqueous_s
+         write(lun_out, *) 'chm_incld_l = '            , chm_incld_l
+         write(lun_out, *) 'chm_blcld_l = '            , chm_blcld_l
+         write(lun_out, *) 'chm_gaschem_online_l = '   , chm_gaschem_online_l
+         write(lun_out, *) 'chm_pm_coag_step_intvl = ' , chm_pm_coag_step_intvl
+         write(lun_out, *) 'chm_debug_2d_i = '         , chm_debug_2d_i
+         write(lun_out, *) 'chm_debug_3d_i = '         , chm_debug_3d_i
+         write(lun_out, *) 'chm_intrsec_ndiv = '       , chm_intrsec_ndiv
+         write(lun_out, *) 'chm_intrsec_ver = '        , chm_intrsec_ver
+         write(lun_out, *) 'chm_aqhi_l = '             , chm_aqhi_l
+         write(lun_out, *) 'chm_indirect_l = '         , chm_indirect_l
+         write(lun_out, *) 'chm_direct_l = '           , chm_direct_l
+      endif
+
+! Ensure that the packages selected are valid
+   select case (chm_model_s)
+      case ('NIL')
+         if (lun_out > 0) then
+            write(lun_out, *) '> Warning'
+            write(lun_out, *) '> No chemistry package selected'
+         endif
+         out_chm_model_L = .false.
+         out_chm_bc_prof_l = .false.
+      case ('MACH')
+         out_chm_model_L = .true.
+         out_chm_bc_prof_l = chm_bc_prof_l
+      case default
+         write(0, *) '### Error in chm_read_nml ###'
+         write(0, *) '# Chemistry package unknown: ', chm_model_s
+         write(0, *) '###         ABORT         ###'
+         call chm_stop('chm_read_nml ', -1)
+   end select
+
+
+   if (out_chm_model_L) then
+! Verify the chemistry sub-packages if necessary
+
+! Gas chemistry
+      if (chm_pkg_gas_s == 'NIL') then
+         if (lun_out > 0) then
+            write(lun_out, *) '> Warning'
+            write(lun_out, *) '> No gas package selected'
+            if (chm_pkg_pm_s /=  'NIL') then
+               write(0, *) '### Error in chm_read_nml ###'
+               write(0, *) '# Invalid namelist keys combination'
+               write(0, *) '# chm_pkg_pm_s MUST be set to NIL when chm_pkg_gas_s = NIL'
+               write(0, *) '###         ABORT         ###'
+               call chm_stop('chm_read_nml ', -1)
+            end if
+         end if
+      end if
+
+! Aerosol chemistry
+      if (chm_pkg_pm_s == 'NIL') then
+         chm_soa_s       = 'NIL'      !Override chm_soa_s
+         chm_seaflux_s   = 'NIL'      !Override chm_seaflux_s
+         chm_winddust_s  = 'NIL'      !Override chm_winddust_s
+         chm_hetchem_s   = 'NIL'      !Override chm_hetchem_s
+         chm_pm_drydep_s = 'NIL'      !Override chm_pm_drydep_s
+         chm_aqueous_s   = 'NIL'      !Override chm_aqueous_s
+         chm_direct_l    = .false.
+         chm_indirect_l  = .false.
+         if (lun_out > 0) then
+            write(lun_out, *) '> Warning'
+            write(lun_out, *) '> No PM package selected'
+            write(lun_out, *) '> chm_soa_s = NIL, chm_seaflux_s = NIL, chm_winddust_s = NIL'
+            write(lun_out, *) '> chm_hetchem_s = NIL, chm_pm_drydep_s = NIL, chm_aqueous_s = NIL'
+         end if
+      else
+         if (chm_pkg_pm_s == 'CAM2BINS') then
+            isize = 2
+            icob  = 2
+! feedbacks are not suited for 2-bin configuration
+            chm_direct_l   = .false.
+            chm_indirect_l = .false.
+         else if (chm_pkg_pm_s == 'CAM12BINS') then
+            isize = 12
+            icob  = 12
+         end if
+
+         if (chm_intrsec_ndiv < 1) then
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# chm_intrsec_ndiv must be positive and greater than zero'
+            write(0, *) '# you choose: ', chm_intrsec_ndiv
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+         end if
+         if (chm_intrsec_ver < 1 .or. chm_intrsec_ver > 6) then
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# chm_intrsec_ver must be between 1 and 6'
+            write(0, *) '# you choose: ', chm_intrsec_ver
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+         end if
+      end if
+
+      if (.not. chm_pkg_fields_init(chm_pkg_gas_s, chm_pkg_pm_s, chm_debug_2d_i, chm_debug_3d_i)) then
+         call chm_stop('chm_pkg_fields_init', -1)
+      end if
+
+! Aerosol in/below cloud process
+      if (chm_incld_l) then
+         iincld = 1
+      else
+         iincld = 0
+      end if
+      if (chm_blcld_l) then
+         iblcld = 1
+      else
+         iblcld = 0
+      end if
+
+! Aerosol with/without an online gas chemistry scheme
+      if (chm_gaschem_online_l) then
+         cam = 10.0
+      else
+         cam = 1.0
+      end if
+
+! Aerosol coagulation
+      icoag = chm_pm_coag_step_intvl
+
+! Biogenic chemistry package
+      select case (chm_biog_s)
+         case ('BEIS3.09')
+            continue
+         case ('NIL')
+            if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No biogenic package selected'
+            endif
+         case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# Biogenic emission package unknown: ', chm_biog_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+! Dry deposition for PM
+      select case (chm_pm_drydep_s)
+         case ('ZHANG')
+            idrydep = 1
+         case ('NIL')
+            idrydep = 0
+            if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No PM dry deposition package selected'
+            endif
+         case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# PM dry deposition package unknown: ', chm_pm_drydep_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+! Dry deposition for gas
+      select case (chm_gas_drydep_s)
+         case ('ROBICHAUD')
+            continue
+         case ('NIL')
+            if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No dry deposition package selected'
+            endif
+         case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# Dry deposition package unknown: ', chm_gas_drydep_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+! SOA chemistry package
+      select case (chm_soa_s)
+        case ('JIANG', 'ODUM')
+           continue
+        case ('NIL')
+           if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No SOA chemistry package selected'
+           endif
+        case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# SOA chemistry package unknown: ', chm_soa_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+      if ((chm_pkg_pm_s /= 'NIL') .and. (chm_soa_s == 'NIL')) then
+         write(0, *) '### Error in chm_read_nml ###'
+         write(0, *) '# chm_pkg_pm_s and chm_soa_s, invalid key combinaison' , chm_pkg_pm_s, chm_soa_s
+         write(0, *) '###         ABORT         ###'
+         call chm_stop('chm_read_nml ', -1)
+      end if
+
+! Vertical diffusion
+      select case (chm_vert_diff_s)
+         case ('FLUX', 'BOUNDARY')
+            continue
+         case ('NIL')
+            if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No diffusion package selected'
+            endif
+         case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# Vertical diffusion algorithm unknown: ', chm_vert_diff_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+! Plumerise
+      select case (chm_mj_treatment_s)
+        case ('PLUMERISE')
+           continue
+        case ('NIL')
+           if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No major points treatment'
+           endif
+        case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# Major points treatment package unknown: ', chm_mj_treatment_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+! Heterogeneous chemistry
+      select case (chm_hetchem_s)
+        case ('HETV')
+           if (lun_out > 0) then
+               write(lun_out, *) '> Warning for HETV'
+               write(lun_out, *) '> chm_hetchem_metstlb_l =', chm_hetchem_metstlb_l
+           endif
+           continue
+        case ('NIL')
+           if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No heterogeneous chemistry package selected'
+           endif
+        case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# Heterogeneous chemistry package unknown: ', chm_hetchem_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+! 58 model levels in GEM-MACH
+!      if (chm_model_s == 'MACH' .and. dlev > 58) then
+!         write(0, *) '### Error in chm_read_nml ###'
+!         write(0, *) '# dlev is over limit  dlev=',dlev
+!         write(0, *) '###         ABORT         ###'
+!         call chm_stop('chm_read_nml ', -1)
+!      end if
+
+! Sea salt
+      select case (chm_seaflux_s)
+        case ('GONG_MONAHAN')
+           i_ss = 1
+           continue
+        case ('GONG_MONAHAN_F')
+           i_ss = 1
+           continue
+        case ('NIL')
+           if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No sea salt flux treatment'
+           endif
+        case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# Sea salt flux package unknown: ', chm_seaflux_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+! Wind dust
+      select case (chm_winddust_s)
+        case ('CAM_WINDDUST')
+           continue
+        case ('NIL')
+           if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No wind dust flux treatment'
+           endif
+        case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# Wind dust flux package unknown: ', chm_winddust_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+! Aqueous chemistry
+      select case (chm_aqueous_s)
+        case ('GONG')
+           continue
+        case ('NIL')
+           if (lun_out > 0) then
+               write(lun_out, *) '> Warning'
+               write(lun_out, *) '> No Aqueous phase chemistry package selected'
+           endif
+        case default
+            write(0, *) '### Error in chm_read_nml ###'
+            write(0, *) '# Aqueous phase chemistry package unknown: ', chm_aqueous_s
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('chm_read_nml ', -1)
+      end select
+
+   end if
+
+   chm_read_nml = 1
+
+   return
+end
+

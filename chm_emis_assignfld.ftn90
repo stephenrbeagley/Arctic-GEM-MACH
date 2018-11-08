@@ -1,0 +1,75 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_emis_assignfld.ftn90
+! Creation       : A. Kallaur (MSC/ARQI), S. Menard, H. Landry.  Dec. 2006
+! Description    : get the particular field specified by nmvr, and load into
+!                  field f for further processing.
+!
+! Extra info     :
+!
+!Arguments  IN
+!              nmvr         --> Variable name
+!              time1        --> timestamp 1 (yyymmdd)
+!              time2        --> timestamp 2 (hhmmsscc)
+!              l_ni         --> local ni
+!              l_nj         --> local nj
+!              chm_busper3D --> the bus (treated as input since not modified here)
+!              chm_bper_len --> bus len
+!
+!=============================================================================
+subroutine chm_emis_assignfld(nmvr, time1, time2, l_ni, l_nj, &
+                            CHM_BUSPER3D, chm_bper_len, chm_bper_siz)
+   use chm_utils_mod
+   use chm_headers_mod, only:chm_put2perbus
+   implicit none
+
+!  Declare subroutine argument list
+   integer,                   intent(in) :: time1, time2
+   character(len = NOMV_LEN), intent(in) :: nmvr
+   integer,                   intent(in) :: chm_bper_len, chm_bper_siz
+   real,                      intent(in) :: chm_busper3D(chm_bper_len)
+   integer,                   intent(in) :: l_ni, l_nj
+   real                                  :: field(l_ni, l_nj)
+
+!  Declare local variables
+   integer             error
+   character(len = 36) msg
+   logical             local_dbg
+
+!  External Functions
+   integer  bmf_get
+   external bmf_get
+
+!  Set local debug switch
+   local_dbg = (.false. .or. global_debug)
+
+!  Attempt to load field.
+   error = 0
+   msg = 'bmf_get  failure for variable: ' // nmvr
+   error = bmf_get(nmvr, time1, time2, -1, field, -1.0, 1, l_ni, 1, l_nj, 1, 1)
+   if (error /= 0) then
+     if (nmvr(1:3) == 'ESS') then
+        field = 0.0
+        if (local_dbg) then
+           write(chm_lun_out, *) nmvr, ' not found with  bmf_get, set to zero in chm_emiss_assignfld'
+        endif
+     else
+        call chm_stop(msg, -1)
+     endif
+   else
+      if (local_dbg) then
+         write(chm_lun_out, *) 'got ', nmvr, ' using bmf_get'
+         write(chm_lun_out, *) 'max, min of field: ', maxval(field), minval(field)
+      endif
+      call chm_put2perbus(field, l_ni*l_nj, CHM_BUSPER3D, chm_bper_len, chm_bper_siz, nmvr)
+   endif
+end subroutine chm_emis_assignfld

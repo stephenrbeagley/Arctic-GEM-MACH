@@ -1,0 +1,158 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_plumerise_prep.ftn90
+! Creation       : A. Kallaur, - March-April 2008
+! Description    : Create connection between emission rate of major point
+!                  source species in the linked list, and the Specie_master
+!                  table.
+!
+! Extra info     : Also, connect the time independant stack info. (also in the
+!                  linked list) to individually created pointer arrays.
+!
+!
+! Arguments:  IN (none)
+!
+!             OUT (none-> results are pointer links between liniked list and
+!                  specie_master table)
+!
+!==============================================================================
+!
+subroutine chm_plumerise_prep ( )
+   use chm_utils_mod
+   use chm_consphychm_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use chm_mjrpts_species_idx_mod
+   use chm_mjrpts_lnklst_mod
+   use chm_ptopo_grid_mod
+   use chm_mjrpts_sortinfo_mod
+   implicit none
+
+!
+!  Local variables
+!
+   integer             :: ll,lbn
+   logical             :: local_dbg
+   type (ltp), pointer :: current_mjrpts
+
+   local_dbg = (.false. .or. global_debug)
+
+   if (local_dbg) then
+      write(chm_lun_out, *) ' '
+      write(chm_lun_out, *) '*****************************************************************'
+      write(chm_lun_out, *) 'ENTER PLUMERISE PREP SUBROUTINE'
+   endif
+   if (.not. associated(head_mjrpts)) then
+      write(chm_lun_out, *) 'EMPTY MAJOR POINT SOURCE LIST -> EXITING PLUME RISE SUBROUTINE'
+      return
+   endif
+   current_mjrpts => head_mjrpts
+   do
+!
+!     Loop over all the species in the cpecie_master array, and connect pointer from
+!     emissions linked list to corresponding place in specie_master table, if a match
+!     is made.
+!
+      do ll=1,nb_species
+         if ( current_mjrpts % var_name == species_master(ll) % me_name ) then
+            write(chm_lun_out, *) ' '
+!             write(chm_lun_out, *) 'Field name       : ', current_mjrpts%var_name
+!             write(chm_lun_out, *) 'min, max, mean   : ', current_mjrpts%min_f , &
+!                                                          current_mjrpts%max_f , &
+!                                                          current_mjrpts%mean_f
+            species_master(ll) % me_list => current_mjrpts % field
+            species_master(ll) % me_size =  current_mjrpts % size_f
+!             write(chm_lun_out, *) 'Linked ',current_mjrpts % var_name, &
+!                                   ' to main sm table, size, sp%me_list(1):  ', &
+!                                   species_master(ll) % me_size               , &
+!                                   species_master(ll) % me_list(1)
+            goto 10
+         endif
+         if ( species_master(ll) % nb_bins > 1 ) then
+            do lbn = 1,species_master(ll) % nb_bins
+               if ( current_mjrpts % var_name == species_master(ll) % bins_array(lbn) % me_name ) then
+!                   write(chm_lun_out, *) ' '
+!                   write(chm_lun_out, *) 'Field name       : ', current_mjrpts%var_name
+!                   write(chm_lun_out, *) 'min, max, mean   : ', current_mjrpts%min_f , &
+!                                                                current_mjrpts%max_f , &
+!                                                                current_mjrpts%mean_f
+                  species_master(ll) % bins_array(lbn) % me_list => current_mjrpts % field
+                  species_master(ll) % bins_array(lbn) % me_size =  current_mjrpts % size_f
+!                   write(chm_lun_out, *) 'Linked ',current_mjrpts % var_name, &
+!                                         ' to main sm (aerosol) table, size, sp % me_list(1):  ' , &
+!                                         species_master(ll) % bins_array(lbn) % me_size          , &
+!                                         species_master(ll) % bins_array(lbn) % me_list(1)
+                  goto 10
+               endif
+            enddo
+         endif
+      enddo
+ 10   continue
+!
+!   Proceed to check whether current list element is a "stack info" time independent
+!   variable via "select case" structure. If there is a hit, a pre-declared pointer array
+!   is made to point to it.
+!
+      select case (current_mjrpts % var_name)
+         case ('LAT ')
+             mjpt_lat  => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_lat  (1st el. =  ',mjpt_lat(1), '  )'
+         case ('LON ')
+             mjpt_lon  => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_lon  (1st el. =  ',mjpt_lon(1), '  )'
+         case ('GIGL')
+             mjpt_gigl => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_gigl (1st el. =  ',mjpt_gigl(1),'  )'
+         case ('GJGL')
+             mjpt_gjgl => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_gjgl (1st el. =  ',mjpt_gjgl(1),'  )'
+         case ('GILC')
+             mjpt_gilc => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_gilc (1st el. =  ',mjpt_gilc(1),'  )'
+         case ('GJLC')
+             mjpt_gjlc => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_gjlc (1st el. =  ',mjpt_gjlc(1),'  )'
+         case ('HGT ')
+             mjpt_hgt  => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_hgt  (1st el. =  ',mjpt_hgt(1), '  )'
+         case ('DIA ')
+             mjpt_dia  => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_dia  (1st el. =  ',mjpt_dia(1), '  )'
+         case ('TEM ')
+             mjpt_tem  => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_tem  (1st el. =  ',mjpt_tem(1), '  )'
+         case ('VEL ')
+             mjpt_vel  => current_mjrpts % field
+!              write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_vel  (1st el. =  ',mjpt_vel(1), '  )'
+         case ('TYP ')
+             mjpt_typ  => current_mjrpts % field
+!             write (chm_lun_out, *) 'Linked mjpt stk fld :  mjpt_typ  (1st el. =  ',mjpt_typ(1), '  )'
+         case default
+             if (local_dbg) then
+                write (chm_lun_out, *) 'mjpt var.:  ',current_mjrpts % var_name, &
+                                       '  NOT in stack info. list, continuing ...'
+             end if
+      end select
+      if (.not. associated(current_mjrpts%next_p)) then
+         exit
+      else
+         current_mjrpts => current_mjrpts%next_p
+      endif
+   enddo
+
+   if (local_dbg) then
+      write (chm_lun_out, *) 'EXIT  PLUMERISE PREP SUBROUTINE'
+      write(chm_lun_out, *) ' '
+      write(chm_lun_out, *) '*****************************************************************'
+   end if
+   return
+end subroutine chm_plumerise_prep

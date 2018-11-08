@@ -1,0 +1,340 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_coagd.ftn90
+! Creation       : S. Gong, E. Girard, S. Gravel and for GEM-MACH, June 2008
+!
+! Description    : Calculate coagulation processes among size bins
+!                  Brownian, turbulent and gravitational coagulation are
+!                  computed in this module.
+!
+! Extra info     : - Previous version based on gelbard et al [1980]
+!                    scheme of coagulation from gelbard et al. with
+!                    pre-calculated coefficients of coagulation was used.
+!                    (E.Girard, Mar 01, 1995)
+!                  - Recode the coagulation module except E. Girard adapting
+!                    coagulation coefficients funtion beta from previous
+!                    code. featuring:
+!                    A. A unique do loop to handel all the coagulation
+!                       processes among size bins and elliminate the
+!                       duplication of computing both k(1, 2) and k(2, 1)
+!                       which are equal.
+!                    B. Vectorization of the code for best efficiency.
+!                    C. The coefficients are calculated based on the real
+!                       size and density of particles.
+!                    D. Simplify the integration procedure to be run for
+!                       a 3-d climate model.
+!                    E. Tendency calculation is based on the original
+!                       dynamical coagulation equations where particle
+!                       number concentrations are prognostic variables.
+!                    F. Physical properties such as mean free path,
+!                       viscosity and setlling velocity are computed
+!                       in a consistant way as in other aerosol routines.
+!                    G. Coagc can now run every time step for much
+!                       smaller overhead.
+!                       (S. Gong Sept 23, 1997)
+!                  - Modified for multi-component aerosols. (S. Gong, Oct 01, 1997)
+!                  - Adapt the jacobson's scheme to conserve volume [mass]
+!                    of each species after coagulation.
+!                    [Jacobson et.al. atm. env. 1994] (S. Gong, Nov 06, 1998)
+!                  - Introduction of igf and igfij to spped up the code.
+!                    the percentage of coagulation in gcmiii wend down from
+!                    17% to 1% of total cpu time. (S. Gong, May 12, 2000)
+!
+!
+! Arguments:  IN
+!               F_chm_ni-> number of longitude grid points
+!               il1     -> minimum index for F_chm_ni
+!               il2     -> maximum index for F_chm_ni
+!               ilev    -> no. z-direct. vertical levels
+!               throw   -> Temp
+!               isize   -> Number of size bins
+!              roarow   -> Air density (kg/m3)
+!              rhsize   -> Wet radius
+!               ntr     -> Total number of trace substances (gases and aerosols)
+!               ntp     -> Number of aerosol types
+!                 f     ->
+!              iae1     -> Index of first aerosol in trace substance list (ntr)
+!              adt2     -> Advection time step (s)
+!              icoag    -> step factor for calculation of coagulation coefficient for PM
+!              irest    -> 1
+!                  v    ->
+!                jlat   -> J Slice number
+!               icob    -> size bin number with which coagulation will apply
+!               tmin    -> minimum thresold value
+!              pdepv    -> gravitational settling velocity
+!               pdiff   -> diffusion coefficient
+!               mae     -> 0
+!               igf     -> Total indices of coagulation
+!               igfij   -> Indices of coagulation transformation
+!              rhop     -> Final wet density
+!          aerosize     -> Dry radius
+!
+!             OUT
+!              RTCOA    -> Coagulation rate
+!              AERONUM  -> Number conconcenration (#/kg)
+!              TOTMAS   -> Total mass mixing ratio for each bin (all components)
+!              BETA     -> Coagulation coefficient
+!
+!             IN/OUT
+!              XROW     -> Tracers concentration update from coagulation
+!
+!============================================================================
+
+subroutine mach_cam_coagd (F_chm_ni, il1, il2, ilev, throw, isize, roarow, RTCOA, rhsize,        &
+                           TOTMAS, AERONUM, ntr, ntp, f, iae1, kount, BETA, adt2, icoag,    &
+                           irest, XROW, v, jlat, icob, tmin, pdepv, pdiff, mae, igf, igfij, &
+                           rhop, aerosize)
+   use chm_utils_mod
+   use chm_consphychm_mod
+   implicit none
+
+   integer, intent(in) :: F_chm_ni, ilev, ntr, isize, mae, irest, jlat, kount
+   integer, intent(in) :: icob, il1, il2, ntp
+   integer, intent(in) :: iae1, icoag
+
+   integer, intent(in) :: igf(isize), igfij(isize, isize * isize, 2)
+   real, intent(in)    :: adt2, tmin
+   real, intent(in)    :: throw(F_chm_ni, ilev + 1), roarow(F_chm_ni, ilev), aerosize(2, isize)
+   real, dimension(F_chm_ni, ilev, isize), intent(in)         :: rhsize, rhop, pdiff, pdepv
+   real, dimension(isize, isize, isize), intent(in)      :: f
+   real, dimension(isize), intent(in)                    :: v
+   real, dimension(F_chm_ni, ilev, ntr), intent(out)          :: rtcoa
+   real, dimension(F_chm_ni, ilev, isize), intent(out)        :: totmas, aeronum
+   real, dimension(F_chm_ni, ilev, isize, isize), intent(out) :: beta
+   real, dimension(F_chm_ni, ilev + 1, ntr), intent(inout)    :: xrow
+
+!  local variables
+   integer  :: itrue, ifalse, n
+   integer  :: l, il, i, j, k, nn, ij
+   integer  :: ik, ip, nt, no
+   real     :: dx, v1, dl3, gx0, diffx, diffy, dsum, cbar, gmean, amu
+   real     :: oldnum, rtloss, turb1
+   real     :: l1, rwi
+   real, dimension(F_chm_ni, ilev, isize) :: binloss, aerop1, cbar12, gx
+   real, dimension(F_chm_ni, ilev)        :: vkp, sgsum, dbsum
+   real, parameter                   :: turbds = 0.002, stick = 1.0, xiao = 1.0e6
+   logical local_dbg
+
+   aerop1   = 0.0
+   amu      = 0.0
+   binloss  = 0.0
+   cbar     = 0.0
+   cbar12   = 0.0
+   dbsum    = 0.0
+   diffx    = 0.0
+   diffy    = 0.0
+   dl3      = 0.0
+   dsum     = 0.0
+   dx       = 0.0
+   gmean    = 0.0
+   gx       = 0.0
+   gx0      = 0.0
+   l1       = 0.0
+   oldnum   = 0.0
+   rtcoa    = 0.0
+   rtloss   = 0.0
+   rwi      = 0.0
+   sgsum    = 0.0
+   totmas   = 0.0
+   turb1    = 0.0
+   v1       = 0.0
+   vkp      = 0.0
+
+   local_dbg = (.false. .or. global_debug)
+
+!  non start-run begins
+
+
+!  update the current aerosol number
+
+   do nt = 1, ntp
+      do n = 1, isize
+         no = n + isize * (nt - 1) + (iae1 - 1)
+         do l = 1 + mae, ilev
+            do i = il1, il2
+               totmas(i, l, n) = totmas(i, l, n) + xrow(i, l + 1, no)
+            end do
+         end do
+      end do
+   end do
+
+   itrue  = 0
+   ifalse = 0
+   do n = 1, isize
+      rwi = (aerosize(1, n) + aerosize(2, n)) / 2.0
+      do l = 1 + mae, ilev
+         do i = il1, il2
+
+!  In case of 0 totmas after cloud chem, aeronum is assigned with a value so that
+!  the number density will be of 0.1*XIAO (# m-3). TOTMAS is then reassigned with
+!  a value consistent with the assigned AERONUM. This is introduced to avoid
+!  overflow in the following calculation, and should not affect the final coagulation
+!  calculation since bins with number density smaller than XIAO (1.E06 m-3) are
+!  avoided in the final calculation. (Wanmin, Mar 26, 2001)
+
+            if (totmas(i, l, n) > 0.0) then
+               aeronum(i, l, n) = totmas(i, l, n) / (4.189 * rwi * rwi * rwi * rhop(i, l, n))
+               itrue=itrue+1
+            else
+               aeronum(i, l, n) = 0.1 * xiao / roarow(i, l)
+               totmas(i, l, n)  = aeronum(i, l, n) * 4.189 * rwi * rwi * rwi * rhop(i, l, n)
+               ifalse = ifalse + 1
+            end if
+         end do
+      end do
+   end do
+   if(local_dbg) then
+      write(chm_lun_out, *)'in coagd pab itrue ifalse', itrue, ifalse, kount
+   end if
+
+   if (mod(kount, icoag) == 0 .or. irest == 1) then
+      if (jlat == 1 .and. local_dbg) write (chm_lun_out, 555) kount
+      beta = 0.0
+      do n = 1, icob
+         rwi = (aerosize(1, n) + aerosize(2, n)) / 2.0
+         do l = 1 + mae, ilev
+            do il = il1, il2
+              dx = 2.0 * rhsize(il, l, n)
+              v1 = 4.189 * rwi * rwi * rwi * rhop(il, l, n)
+              cbar12(il, l, n) = 3.51568e-23 * throw(il, l + 1) / v1
+              l1 = 2.5465 * pdiff(il, l, n) / sqrt(cbar12(il, l, n))
+              dl3 = (dx + l1) * (dx + l1) * (dx + l1)
+              gx0 = (dl3 - (dx * dx + l1 * l1) ** 1.5) / (3.0 * dx * l1) - dx
+              gx(il, l, n) = gx0 * gx0
+            end do
+         end do
+      end do
+
+      do i = 1, icob
+         do j = i, icob
+            do l = 1 + mae, ilev
+               do il = il1, il2
+!  diffusion coefficients
+                  diffx = pdiff(il, l, i)
+                  diffy = pdiff(il, l, j)
+
+!  air's dynamic viscosity
+                  amu = 145.8 * 1.0e-8 * throw(il, l + 1) ** 1.5 / (throw(il, l + 1) + 110.4)
+                  dsum = 2.0 * (rhsize(il, l, i) + rhsize(il, l, j))
+
+!  brownian coagulation coefficient        [v1, v2, vr - particle mass, kg]
+                  cbar  = sqrt(cbar12(il, l, i) + cbar12(il, l, j))
+                  gmean = sqrt(gx(il, l, i) + gx(il, l, j))
+                  beta(il, l, i, j) = 6.2832 * (diffx + diffy) * dsum / (dsum / (dsum     &
+                                    + 2.0 * gmean) + 8.0 * (diffx + diffy) / (cbar * dsum * stick))
+
+!  add gravitational coagulation
+                  beta(il, l, i, j) = beta(il, l, i, j) + 0.7854 * dsum ** 2              &
+                                    * abs(pdepv(il, l, i) - pdepv(il, l, j))
+
+!  add turbulent coagulation
+                  turb1 = .1618 * sqrt(turbds * roarow(il, l) / amu) * dsum * dsum * dsum
+                  beta(il, l, i, j) = beta(il, l, i, j) + stick * turb1
+                  beta(il, l, j, i) = beta(il, l, i, j)
+               end do
+            end do
+         end do
+      end do
+888  end if
+
+
+   aerop1 = 0.0
+   do k = 1, icob
+      dbsum   = 0.0
+      sgsum   = 0.0
+      binloss = 0.0
+      do j = 1, icob
+         do l = 1 + mae, ilev
+            do il = il1, il2
+
+!  number loss of k due to collision with j [1-isize]
+               oldnum = aeronum(il, l, j) * roarow(il, l)
+               if (oldnum > xiao) then
+                  binloss(il, l, j) = (1.0 - f(k, j, k)) * beta(il, l, k, j) * oldnum
+                  sgsum(il, l) = sgsum(il, l) + binloss(il, l, j)
+               end if
+            end do
+         end do
+      end do
+
+      do ij = 1, igf(k)     !gethered points for coagfr
+         i = igfij(k, ij, 1)
+         j = igfij(k, ij, 2)
+         do l = 1 + mae, ilev
+            do il = il1, il2
+!  volume gain of k due to collision of i and j [=<k]-- [m3 s-1]
+               dbsum(il, l) = dbsum(il, l) + f(i, j, k) * beta(il, l, i, j) * v(i) &
+                            * aerop1(il, l, i) * aeronum(il, l, j) * roarow(il, l)
+            end do
+         end do
+      end do
+
+!  total number of k after coagulation [# m-3]
+      do l = 1 + mae, ilev
+         do il = il1, il2
+         aerop1(il, l, k) = (roarow(il, l) * aeronum(il, l, k) + adt2 / v(k) &
+                          * dbsum(il, l)) / (1.0 + adt2 * sgsum(il, l))
+         end do
+      end do
+
+!  Mass balance for each species of k. Loss of k is the sum of mass gained by all j
+!  sgsum: dimension less, aerop1: # m-3
+      do nn = 1, ntp
+         ik = (nn - 1) * isize + k + (iae1 - 1)
+         vkp = 0.0
+         do l = 1 + mae, ilev
+            do il = il1, il2
+
+!  lost tendency of k
+!  aerop1(il, l, k) * sgsum(il, l) * v(k) is the volume loss rate of bin k due to the
+!  coagulation by /(oldnum*v(k)) *xrow(il, l+1, ik) the loss tendency of ik is obtained.
+               oldnum = aeronum(il, l, k) * roarow(il, l)
+               if (oldnum > xiao) then
+                  vkp(il, l) = aerop1(il, l, k) / oldnum * xrow(il, l + 1, ik)
+                  rtcoa(il, l, ik) = rtcoa(il, l, ik) - vkp(il, l) * sgsum(il, l)
+               end if
+            end do
+         end do
+
+! gain tendency of i due to loss of [k, j]
+         do j = 1, icob
+            do i = max(j, k), icob
+            if (f(k, j, i) > 0.0) then
+               ip = (nn - 1) * isize + i + (iae1 - 1)
+               do l = 1 + mae, ilev
+                  do il = il1, il2
+                     rtloss = vkp(il, l) * binloss(il, l, j) * f(k, j, i)
+                     rtcoa(il, l, ip) = rtcoa(il, l, ip) + rtloss
+                  end do
+               end do
+            end if
+            end do
+         end do
+      end do      !end of nn loop
+   end do         !end of k  loop
+
+!  update tracer due to coagulations
+   do k = 1, isize - 1
+      do nn = 1, ntp
+         ik = (nn - 1) * isize + k + (iae1 - 1)
+         do l = 1 + mae, ilev
+            do il = il1, il2
+               xrow(il, l + 1, ik) = max(tmin, xrow(il, l + 1, ik) + rtcoa(il, l, ik) * adt2)
+            end do
+         end do
+      end do
+   end do
+
+ 555  format (' coagd -> beta computed @ ', i5)
+
+   return
+end

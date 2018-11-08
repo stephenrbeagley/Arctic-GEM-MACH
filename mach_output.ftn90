@@ -1,0 +1,1153 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_output.ftn90
+! Creation       : S. Menard  ,  GEM-MACH, April 2008.
+! Description    : 1) Units conversion for gases (ug/kg) --> (ppb)
+!                  2) Units conversion for PM    (ug/kg) --> (ug/m3)
+!                  3) Compute PM2.5 (AF) and PM10 (AC)
+!                  4) Compute AQHI25 and AQHI10
+!
+! Extra info     : AQHI formulations
+! -----------
+!                  aqhi(pm2.5) = 10/10.4 * ( 100 * (exp(0.000871 * no2) - 1 + exp(0.000537 * o3) - 1 +
+!                              exp(0.000487 * pm2.5) - 1) )
+!                  aqhi(pm10)  = 10/11.7 * ( 100 * (exp(0.000871 * no2) - 1 + exp(0.000537 * o3) - 1 +
+!                              exp(0.000297 * pm10)   -1) )
+! Arguments:
+!            IN
+!
+!               f_chmbusdyn     -> Chemistry dynamic bus
+!               f_chm_ni        -> Horizontal running length (chemistry)
+!               nk              -> No. z-direct. vertical levels
+!
+!            OUT
+!               F_CHMBUSVOL     -> Chemistry volatile bus
+!
+!==============================================================================================
+
+subroutine mach_output (F_CHMBUSVOL,f_chmbusdyn, f_chm_ni, nk)
+   use chm_utils_mod
+   use chm_consphychm_mod
+   use chm_nml_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   implicit none
+
+!  Arguments
+   real, dimension(*),     intent(out)    :: f_chmbusvol
+   real, dimension(*),     intent(in)     :: f_chmbusdyn
+   integer,                intent(in)     :: f_chm_ni, nk
+
+!  Declaration of local variables.
+   integer                                :: i, k , ibin, sp_index, nb_bins, score_count
+   integer, parameter                     :: nsp_out_list_AF_AC = 8  !Added sea-salt back in
+   integer, dimension(nsp_out_list_AF_AC) :: list_out_AF_AC
+   integer, parameter                     :: nsp_out_gas = 14
+   integer, dimension(nsp_out_gas)        :: list_out_gas
+   integer, parameter                     :: nsp_out_pm  = 8
+   integer, dimension(nsp_out_pm)         :: list_out_pm
+   real,    dimension(nsp_out_pm)         :: rhop0_out
+   integer, parameter                     :: nsp_out_noy = 7
+   integer, dimension(nsp_out_noy)        :: list_out_noy
+   integer, parameter                     :: nsp_out_rad = 3
+   integer, dimension(nsp_out_rad)        :: list_out_rad
+   
+   real                                   :: volratpm1, volratpm2p5, volratpm10
+   logical local_dbg
+   real     :: rwi
+
+   real, parameter :: maxradius_pm25 = 1.280, maxradius_pm10 = 5.120
+
+   real, allocatable, dimension(:, :, :) :: aeronum,aerovol
+   real, allocatable, dimension(:) :: volpart
+
+   local_dbg = (.false. .or. global_debug)
+
+   if(local_dbg) then
+      write (chm_lun_out, *) 'Entering mach_output'
+   end if
+
+!  Gas species list for units conversion
+   list_out_gas(1:nsp_out_gas)    = (/ sp_O3,   sp_NO,   sp_NO2,  sp_SO2, sp_CO, &
+                                       sp_ISOP, sp_HCHO, sp_HNO3, sp_PAN, sp_ETHE, &
+                                       sp_NH3,  sp_H2O2, sp_HO2,  sp_RO2 /)
+!  Gas species list for species already in ppbv
+   list_out_rad(1:nsp_out_rad)    = (/ sp_NO3, sp_N2O5, sp_OH /)
+!  Gas species for NOY calculation
+   list_out_noy(1:nsp_out_noy)    = (/ sp_NO, sp_NO2, sp_HNO3, sp_PAN, sp_HONO, sp_HNO4, sp_RNO3 /)
+!  PM species list for units conversion
+   list_out_pm (1:nsp_out_pm)     = (/ sp_OC, sp_PC, sp_SU, sp_CM, sp_EC, sp_SS, sp_NI, sp_AM /)
+!  PM species to be used to compute AF and AC
+   list_out_AF_AC(1:nsp_out_list_AF_AC)  = (/ sp_OC, sp_PC, sp_SU, sp_CM, sp_SS, sp_EC, sp_NI, sp_AM/)
+!  PM species density (note modified order from within CAM:
+   rhop0_out (1:nsp_out_pm)       = (/ 1300.0, 1300.0, 1769.0, 2650.0, 1500.0, 2170.0, 1725.0, 1754.3 /)
+!
+!   if(isize /= nb_bins) then
+!     write(0,*) 'Mismatch between isize and nb_bins) in s/r mach_output'
+!     call qqexit(-1)
+!   end if
+!
+   f_chmbusvol(sm(sp_AF) % out_offset:sm(sp_AF) % out_offset + sm(sp_AF) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_AC) % out_offset:sm(sp_AC) % out_offset + sm(sp_AC) % out_size - 1) = 0.0
+!
+   f_chmbusvol(sm(sp_NFIN) % out_offset:sm(sp_NFIN) % out_offset + sm(sp_NFIN) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_NCRS) % out_offset:sm(sp_NCRS) % out_offset + sm(sp_NCRS) % out_size - 1) = 0.0
+!
+   f_chmbusvol(sm(sp_NOY) % out_offset:sm(sp_NOY) % out_offset + sm(sp_NOY) % out_size - 1) = 0.0
+!
+   f_chmbusvol(sm(sp_SU01) % out_offset:sm(sp_SU01) % out_offset + sm(sp_SU01) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_OC01) % out_offset:sm(sp_OC01) % out_offset + sm(sp_OC01) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_PC01) % out_offset:sm(sp_PC01) % out_offset + sm(sp_PC01) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_CM01) % out_offset:sm(sp_CM01) % out_offset + sm(sp_CM01) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_EC01) % out_offset:sm(sp_EC01) % out_offset + sm(sp_EC01) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_SS01) % out_offset:sm(sp_SS01) % out_offset + sm(sp_SS01) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_NI01) % out_offset:sm(sp_NI01) % out_offset + sm(sp_NI01) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_AM01) % out_offset:sm(sp_AM01) % out_offset + sm(sp_AM01) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_SU25) % out_offset:sm(sp_SU25) % out_offset + sm(sp_SU25) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_OC25) % out_offset:sm(sp_OC25) % out_offset + sm(sp_OC25) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_PC25) % out_offset:sm(sp_PC25) % out_offset + sm(sp_PC25) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_CM25) % out_offset:sm(sp_CM25) % out_offset + sm(sp_CM25) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_EC25) % out_offset:sm(sp_EC25) % out_offset + sm(sp_EC25) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_SS25) % out_offset:sm(sp_SS25) % out_offset + sm(sp_SS25) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_NI25) % out_offset:sm(sp_NI25) % out_offset + sm(sp_NI25) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_AM25) % out_offset:sm(sp_AM25) % out_offset + sm(sp_AM25) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_SU10) % out_offset:sm(sp_SU10) % out_offset + sm(sp_SU10) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_OC10) % out_offset:sm(sp_OC10) % out_offset + sm(sp_OC10) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_PC10) % out_offset:sm(sp_PC10) % out_offset + sm(sp_PC10) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_CM10) % out_offset:sm(sp_CM10) % out_offset + sm(sp_CM10) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_EC10) % out_offset:sm(sp_EC10) % out_offset + sm(sp_EC10) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_SS10) % out_offset:sm(sp_SS10) % out_offset + sm(sp_SS10) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_NI10) % out_offset:sm(sp_NI10) % out_offset + sm(sp_NI10) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_AM10) % out_offset:sm(sp_AM10) % out_offset + sm(sp_AM10) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_SUT) % out_offset:sm(sp_SUT) % out_offset + sm(sp_SUT) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_OCT) % out_offset:sm(sp_OCT) % out_offset + sm(sp_OCT) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_PCT) % out_offset:sm(sp_PCT) % out_offset + sm(sp_PCT) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_CMT) % out_offset:sm(sp_CMT) % out_offset + sm(sp_CMT) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_ECT) % out_offset:sm(sp_ECT) % out_offset + sm(sp_ECT) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_SST) % out_offset:sm(sp_SST) % out_offset + sm(sp_SST) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_NIT) % out_offset:sm(sp_NIT) % out_offset + sm(sp_NIT) % out_size - 1) = 0.0
+   f_chmbusvol(sm(sp_AMT) % out_offset:sm(sp_AMT) % out_offset + sm(sp_AMT) % out_size - 1) = 0.0
+
+! Testing if everything that should be declared really is
+
+   do sp_index = 1, nsp_out_gas
+      if (sm(list_out_gas(sp_index)) % out_name == UNASSIGNED) then
+         write(0, *) '### Error in mach_output ###'
+         write(0, *) '# No bus memory allocation made for this species: '
+         call print_species_info(list_out_gas(sp_index), 0)
+         write(0, *) '###         ABORT         ###'
+         call chm_stop('mach_output ', -1)
+      end if
+   end do
+   do sp_index = 1, nsp_out_rad
+      if (sm(list_out_rad(sp_index)) % out_name == UNASSIGNED) then
+         write(0, *) '### Error in mach_output ###'
+         write(0, *) '# No bus memory allocation made for this species: '
+         call print_species_info(list_out_rad(sp_index), 0)
+         write(0, *) '###         ABORT         ###'
+         call chm_stop('mach_output ', -1)
+      end if
+   end do
+
+! 1) Units conversion for gases     (ug/kg) --> (ppb)
+   do sp_index = 1, nsp_out_gas
+      do k = 1, nk
+         do i = 1, f_chm_ni
+            f_chmbusvol(sm(list_out_gas(sp_index)) % out_offset + ik(i, k)) =                        &
+           (f_chmbusdyn(sm(list_out_gas(sp_index)) % dyn_offset + ik(i, k))) * mwt_air /             &
+           (sm(list_out_gas(sp_index)) % mol_wt)
+         end do
+      end do
+   end do
+
+! 1b) Units conversion and summation for NOY:
+   do sp_index = 1, nsp_out_noy
+      do k = 1, nk
+         do i = 1, f_chm_ni
+            f_chmbusvol(sm(sp_NOY) % out_offset + ik(i, k)) = &
+            f_chmbusvol(sm(sp_NOY) % out_offset + ik(i, k)) +                       &
+           (f_chmbusdyn(sm(list_out_noy(sp_index)) % dyn_offset + ik(i, k))) * mwt_air /             &
+           (sm(list_out_noy(sp_index)) % mol_wt)
+         end do
+      end do
+   end do
+
+! 1c) transfer of mass to volatile bus for species with no units conversion required:
+   do sp_index = 1, nsp_out_rad
+      do k = 1, nk
+         do i = 1, f_chm_ni
+            f_chmbusvol(sm(list_out_rad(sp_index)) % out_offset + ik(i, k)) =                        &
+           (f_chmbusdyn(sm(list_out_rad(sp_index)) % dyn_offset + ik(i, k))) 
+         end do
+      end do
+   end do
+
+  if (chm_pkg_pm_s == 'CAM2BINS' .or. chm_pkg_pm_s == 'CAM12BINS') then
+      nb_bins = sm(list_out_pm(1)) % nb_bins
+
+      allocate(aeronum(f_chm_ni,nk,nb_bins))
+      allocate(aerovol(f_chm_ni,nk,nb_bins))
+      allocate(volpart(nb_bins))
+
+
+      if(local_dbg) then
+         write (chm_lun_out, *) 'Validating memory allocation'
+         write (chm_lun_out, *) 'nb_bins = ', nb_bins
+         write (chm_lun_out, *) 'nsp_out_pm = ', nsp_out_pm
+      end if
+      do sp_index = 1, nsp_out_pm
+         do ibin = 1, nb_bins
+            if (sm(list_out_pm(sp_index)) % bins_array(ibin) % out_name == UNASSIGNED) then
+               write(0, *) '### Error in mach_output ###'
+               write(0, *) '# No bus memory allocation made for this species: '
+               call print_species_info(list_out_pm(sp_index), 0)
+               write(0, *) '# for the bin # ', ibin
+               write(0, *) '###         ABORT         ###'
+               call chm_stop('mach_output ', -1)
+            end if
+         end do
+      end do
+! 2) Units conversion for particles (ug/kg) --> (ug/m3)
+! aerovol is volume mixing ratio of total aerosol (m3/m3)
+      aerovol = 0.
+      do sp_index = 1, nsp_out_pm
+         do k = 1, nk
+            do i = 1, f_chm_ni
+               do ibin = 1, nb_bins
+                  f_chmbusvol(sm(list_out_pm(sp_index)) % bins_array (ibin) % out_offset + ik(i, k))  =  &
+                 (f_chmbusdyn(sm(list_out_pm(sp_index)) % bins_array (ibin) % dyn_offset + ik(i, k))) *  &
+                  f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+                  aerovol(i,k,ibin) = aerovol(i,k,ibin) + &
+                 (f_chmbusdyn(sm(list_out_pm(sp_index)) % bins_array (ibin) % dyn_offset + ik(i, k))) *  &
+                  f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k)) / rhop0_out(sp_index) * 1.E-09
+               end do
+            end do
+         end do
+      end do
+!
+!    Calculate the particle number (per m3):
+!
+      do ibin = 1,nb_bins
+         rwi = 0.5*(aerosize(ibin)+aerosize(ibin+1))*1.E-06
+         volpart(ibin) = 4./3. *acos(-1.) * rwi ** 3
+      end do
+ 
+      do k = 1, nk
+            do i = 1, f_chm_ni
+               do ibin = 1, nb_bins
+                  aeronum(i,k,ibin) = aerovol(i,k,ibin) / volpart(ibin)
+               end do
+            end do
+      end do
+ 
+! 3) Compute PM2.5 (AF) and PM10 (AC)
+!  a) AF = PM2.5
+!  b) AC = PM10.0
+
+      do sp_index = 1, nsp_out_list_AF_AC
+         do k = 1, nk
+            do i = 1, f_chm_ni
+               do ibin = 1, nb_bins
+! aerosize = 0.005, 0.010, 0.020, 0.040, 0.080, 0.160, 0.320, 0.640, 1.280, 2.560, 5.120, 10.240, 20.480 
+! aerosize = 0.005, 1.280, 5.12 
+!  a)
+                  if (aerosize(ibin + 1) < maxradius_pm25)   then
+                     ! PM2.5 (AF)
+                     f_chmbusvol(sm(sp_AF) % out_offset + ik(i, k)) =                                             &
+                        f_chmbusvol(sm(sp_AF) % out_offset + ik(i, k)) +                                          &
+                        (f_chmbusdyn(sm(list_out_AF_AC(sp_index)) % bins_array (ibin) % dyn_offset + ik(i, k))) * &
+                        f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+                    f_chmbusvol(sm(sp_NFIN) % out_offset + ik(i,k)) =                                             &
+                         f_chmbusvol(sm(sp_NFIN) % out_offset + ik(i,k)) + aeronum(i,k,ibin) 
+                  else if (aerosize(ibin + 1) == maxradius_pm25) then
+!  Value of volrat is the ratio of volume of spherical shells for the PM:
+                     volratpm2p5 = (1.25**3 - aerosize(ibin)**3) / (aerosize(ibin+1)**3 - aerosize(ibin)**3)
+                     f_chmbusvol(sm(sp_AF) % out_offset + ik(i, k)) =                                             &
+                        f_chmbusvol(sm(sp_AF) % out_offset + ik(i, k)) +                                          &
+                        (f_chmbusdyn(sm(list_out_AF_AC(sp_index)) % bins_array (ibin) % dyn_offset + ik(i, k))) * &
+                        f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+                     f_chmbusvol(sm(sp_NFIN) % out_offset + ik(i,k)) =                                            &
+                        f_chmbusvol(sm(sp_NFIN) % out_offset + ik(i,k)) + aeronum(i,k,ibin) * volratpm2p5
+                     f_chmbusvol(sm(sp_AC) % out_offset + ik(i, k)) =                                             &
+                        f_chmbusvol(sm(sp_AC) % out_offset + ik(i, k)) +                                          &
+                        (f_chmbusdyn(sm(list_out_AF_AC(sp_index)) % bins_array (ibin) % dyn_offset + ik(i, k))) * &
+                        f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*(1.0-volratpm2p5)
+                     f_chmbusvol(sm(sp_NCRS) % out_offset + ik(i,k)) =                                            &
+                        f_chmbusvol(sm(sp_NCRS) % out_offset + ik(i,k)) + aeronum(i,k,ibin) * &
+                        (1.0-volratpm2p5)
+                  else if ((aerosize(ibin + 1) > maxradius_pm25) .and. (aerosize(ibin + 1) < maxradius_pm10)) then
+                     !  AC at this stage is PM10 -PM2.5 (AC - AF)
+                     f_chmbusvol(sm(sp_AC) % out_offset + ik(i, k)) =                                             &
+                        f_chmbusvol(sm(sp_AC) % out_offset + ik(i, k)) +                                          &
+                        (f_chmbusdyn(sm(list_out_AF_AC(sp_index)) % bins_array (ibin) % dyn_offset + ik(i, k))) * &
+                        f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+                     f_chmbusvol(sm(sp_NCRS) % out_offset + ik(i,k)) =                                            &
+                        f_chmbusvol(sm(sp_NCRS) % out_offset + ik(i,k)) + aeronum(i,k,ibin) 
+                  else if (aerosize(ibin + 1) == maxradius_pm10) then
+!  Value of volrat is the ratio of volume of spherical shells for the PM:
+                     volratpm10 = (5.0**3 - aerosize(ibin)**3) / (aerosize(ibin+1)**3 - aerosize(ibin)**3)
+                     f_chmbusvol(sm(sp_AC) % out_offset + ik(i, k)) =                                             &
+                        f_chmbusvol(sm(sp_AC) % out_offset + ik(i, k)) +                                          &
+                        (f_chmbusdyn(sm(list_out_AF_AC(sp_index)) % bins_array (ibin) % dyn_offset + ik(i, k))) * &
+                        f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10
+                     f_chmbusvol(sm(sp_NCRS) % out_offset + ik(i,k)) =                                            &
+                        f_chmbusvol(sm(sp_NCRS) % out_offset + ik(i,k)) + aeronum(i,k,ibin) * volratpm10
+
+
+                  else
+                     cycle
+                  end if
+               end do
+            end do
+         end do
+      end do
+!       b) PM10  (AC)
+      f_chmbusvol(sm(sp_AC) % out_offset : (sm(sp_AC) % out_offset + sm(sp_AC) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_AC) % out_offset : (sm(sp_AC) % out_offset + sm(sp_AC) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_AF) % out_offset : (sm(sp_AF) % out_offset + sm(sp_AF) % out_size - 1))
+      f_chmbusvol(sm(sp_NCRS) % out_offset : (sm(sp_NCRS) % out_offset + sm(sp_NCRS) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_NCRS) % out_offset : (sm(sp_NCRS) % out_offset + sm(sp_NCRS) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_NFIN) % out_offset : (sm(sp_NFIN) % out_offset + sm(sp_NFIN) % out_size - 1))
+
+! 3.25)  Calculation of accumulated PM, for 2 bin distribution
+      if (nb_bins == 2) then
+! aerosize = 0.005, 1.280, 5.12 
+      volratpm1 = (0.5**3 - aerosize(1)**3) / (aerosize(2)**3 - aerosize(1)**3)
+      volratpm2p5 = (1.25**3 - aerosize(1)**3) / (aerosize(2)**3 - aerosize(1)**3) 
+      volratpm10 = (5.0**3 - aerosize(2)**3) / (aerosize(3)**3 - aerosize(2)**3)
+        do k = 1, nk
+          do i = 1, f_chm_ni
+! sp_SU, sp_AM, sp_NI, sp_OC, sp_PC, sp_EC, sp_CM, sp_SS 
+!Sulphate
+             f_chmbusvol(sm(sp_SU01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_SU25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_SU10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_SUT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_SUT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Ammonium
+             f_chmbusvol(sm(sp_AM01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_AM25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_AM10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_AMT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_AMT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Nitrate
+             f_chmbusvol(sm(sp_NI01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_NI25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_NI10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_NIT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_NIT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+!SOA
+             f_chmbusvol(sm(sp_OC01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_OC25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_OC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_OCT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_OCT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k)) 
+! Primary organic carbon:
+             f_chmbusvol(sm(sp_PC01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_PC25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_PC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_PCT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_PCT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+!EC                                           
+             f_chmbusvol(sm(sp_EC01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_EC25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_EC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_ECT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_ECT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Crustal Material
+            f_chmbusvol(sm(sp_CM01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_CM25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_CM10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_CMT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_CMT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Sea-salt
+             f_chmbusvol(sm(sp_SS01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_SS25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_SS10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_SST) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_SST) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))     
+! Aerosol-bound water:
+             f_chmbusvol(sm(sp_WA01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_WA25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_WA10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_WAT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_WAT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (1) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))  +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (2) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                                                                   
+          end do
+        end do
+      end if        
+! 3.75)  Calculation of accumulated PM, for 12 bin distribution
+      if (nb_bins == 12) then
+! aerosize = 0.005, 0.010, 0.020, 0.040, 0.080, 0.160, 0.320, 0.640, 1.280, 2.560, 5.120, 10.240, 20.480 
+! The first six bins are held in common by all four PM summary bins, so PM1 is used as the accumulator, and
+! is assigned to PM2.5, PM10 and PMtot accumulators thereafter.
+        do ibin = 1,6 
+         do k = 1, nk
+           do i = 1, f_chm_ni
+! sp_SU, sp_AM, sp_NI, sp_OC, sp_PC, sp_EC, sp_CM, sp_SS
+! Sulphate
+             f_chmbusvol(sm(sp_SU01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (ibin) % dyn_offset + ik(i, k))) *                   &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Ammonium
+             f_chmbusvol(sm(sp_AM01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Nitrate
+             f_chmbusvol(sm(sp_NI01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! SOA
+             f_chmbusvol(sm(sp_OC01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Primary OC
+             f_chmbusvol(sm(sp_PC01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Elementary Carbon
+             f_chmbusvol(sm(sp_EC01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Crustal Material
+             f_chmbusvol(sm(sp_CM01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Sea-Salt
+             f_chmbusvol(sm(sp_SS01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Aerosol-bound water
+             f_chmbusvol(sm(sp_WA01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+             end do 
+           end do
+         end do
+!  
+!  Add PM1 bins to PM2.5 accumulators:
+!
+!     f_chmbusvol(sm(sp_AC) % out_offset : (sm(sp_AC) % out_offset + sm(sp_AC) % out_size - 1)) =                     &
+!        f_chmbusvol(sm(sp_AC) % out_offset : (sm(sp_AC) % out_offset + sm(sp_AC) % out_size - 1)) +                  &
+!        f_chmbusvol(sm(sp_AF) % out_offset : (sm(sp_AF) % out_offset + sm(sp_AF) % out_size - 1))
+
+! Sulphate:
+      f_chmbusvol(sm(sp_SU25) % out_offset : (sm(sp_SU25) % out_offset + sm(sp_SU25) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_SU25) % out_offset : (sm(sp_SU25) % out_offset + sm(sp_SU25) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_SU01) % out_offset : (sm(sp_SU01) % out_offset + sm(sp_SU01) % out_size - 1))
+! Ammonium:
+      f_chmbusvol(sm(sp_AM25) % out_offset : (sm(sp_AM25) % out_offset + sm(sp_AM25) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_AM25) % out_offset : (sm(sp_AM25) % out_offset + sm(sp_AM25) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_AM01) % out_offset : (sm(sp_AM01) % out_offset + sm(sp_AM01) % out_size - 1))
+! Nitrate:
+      f_chmbusvol(sm(sp_NI25) % out_offset : (sm(sp_NI25) % out_offset + sm(sp_NI25) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_NI25) % out_offset : (sm(sp_NI25) % out_offset + sm(sp_NI25) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_NI01) % out_offset : (sm(sp_NI01) % out_offset + sm(sp_NI01) % out_size - 1))
+! Secondary organic aerosol:
+      f_chmbusvol(sm(sp_OC25) % out_offset : (sm(sp_OC25) % out_offset + sm(sp_OC25) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_OC25) % out_offset : (sm(sp_OC25) % out_offset + sm(sp_OC25) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_OC01) % out_offset : (sm(sp_OC01) % out_offset + sm(sp_OC01) % out_size - 1))
+! Primary organic carbon:
+      f_chmbusvol(sm(sp_PC25) % out_offset : (sm(sp_PC25) % out_offset + sm(sp_PC25) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_PC25) % out_offset : (sm(sp_PC25) % out_offset + sm(sp_PC25) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_PC01) % out_offset : (sm(sp_PC01) % out_offset + sm(sp_PC01) % out_size - 1))
+! Elemental Carbon:
+      f_chmbusvol(sm(sp_EC25) % out_offset : (sm(sp_EC25) % out_offset + sm(sp_EC25) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_EC25) % out_offset : (sm(sp_EC25) % out_offset + sm(sp_EC25) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_EC01) % out_offset : (sm(sp_EC01) % out_offset + sm(sp_EC01) % out_size - 1))
+! Crustal Material
+      f_chmbusvol(sm(sp_CM25) % out_offset : (sm(sp_CM25) % out_offset + sm(sp_CM25) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_CM25) % out_offset : (sm(sp_CM25) % out_offset + sm(sp_CM25) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_CM01) % out_offset : (sm(sp_CM01) % out_offset + sm(sp_CM01) % out_size - 1))
+!  Sea-salt
+      f_chmbusvol(sm(sp_SS25) % out_offset : (sm(sp_SS25) % out_offset + sm(sp_SS25) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_SS25) % out_offset : (sm(sp_SS25) % out_offset + sm(sp_SS25) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_SS01) % out_offset : (sm(sp_SS01) % out_offset + sm(sp_SS01) % out_size - 1))
+! Aerosol-bound water:
+      f_chmbusvol(sm(sp_WA25) % out_offset : (sm(sp_WA25) % out_offset + sm(sp_WA25) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_WA25) % out_offset : (sm(sp_WA25) % out_offset + sm(sp_WA25) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_WA01) % out_offset : (sm(sp_WA01) % out_offset + sm(sp_WA01) % out_size - 1))
+!
+!  Bin 7 (diameter 0.64 to 1.28; aerosize 0.32 to 0.64) is split for PM1, not for the other bins
+! aerosize = 0.005, 0.010, 0.020, 0.040, 0.080, 0.160, 0.320, 0.640, 1.280, 2.560, 5.120, 10.240, 20.480 
+!
+         ibin = 7
+         volratpm1 = (0.5**3 - aerosize(7)**3) / (aerosize(8)**3 - aerosize(7)**3)
+         do k = 1, nk
+           do i = 1, f_chm_ni
+! sp_SU, sp_AM, sp_NI, sp_OC, sp_PC, sp_EC, sp_CM, sp_SS
+! Sulphate
+             f_chmbusvol(sm(sp_SU01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_SU25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Ammonium
+             f_chmbusvol(sm(sp_AM01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_AM25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Nitrate
+             f_chmbusvol(sm(sp_NI01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_NI25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! SOA
+             f_chmbusvol(sm(sp_OC01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_OC25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Primary OC
+             f_chmbusvol(sm(sp_PC01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_PC25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Elementary Carbon
+             f_chmbusvol(sm(sp_EC01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_EC25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Crustal Material
+             f_chmbusvol(sm(sp_CM01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_CM25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Sea-Salt
+             f_chmbusvol(sm(sp_SS01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_SS25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+! Aerosol-bound water
+             f_chmbusvol(sm(sp_WA01) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA01) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm1
+             f_chmbusvol(sm(sp_WA25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))
+           end do
+         end do
+!  
+!  Add PM2.5 bins to PM10, PMtotal accumulators:
+!
+! Sulphate:
+      f_chmbusvol(sm(sp_SU10) % out_offset : (sm(sp_SU10) % out_offset + sm(sp_SU10) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_SU10) % out_offset : (sm(sp_SU10) % out_offset + sm(sp_SU10) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_SU25) % out_offset : (sm(sp_SU25) % out_offset + sm(sp_SU25) % out_size - 1))
+! Ammonium:
+      f_chmbusvol(sm(sp_AM10) % out_offset : (sm(sp_AM10) % out_offset + sm(sp_AM10) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_AM10) % out_offset : (sm(sp_AM10) % out_offset + sm(sp_AM10) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_AM25) % out_offset : (sm(sp_AM25) % out_offset + sm(sp_AM25) % out_size - 1))
+! Nitrate:
+      f_chmbusvol(sm(sp_NI10) % out_offset : (sm(sp_NI10) % out_offset + sm(sp_NI10) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_NI10) % out_offset : (sm(sp_NI10) % out_offset + sm(sp_NI10) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_NI25) % out_offset : (sm(sp_NI25) % out_offset + sm(sp_NI25) % out_size - 1))
+! Secondary organic aerosol:
+      f_chmbusvol(sm(sp_OC10) % out_offset : (sm(sp_OC10) % out_offset + sm(sp_OC10) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_OC10) % out_offset : (sm(sp_OC10) % out_offset + sm(sp_OC10) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_OC25) % out_offset : (sm(sp_OC25) % out_offset + sm(sp_OC25) % out_size - 1))
+! Primary organic carbon:
+      f_chmbusvol(sm(sp_PC10) % out_offset : (sm(sp_PC10) % out_offset + sm(sp_PC10) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_PC10) % out_offset : (sm(sp_PC10) % out_offset + sm(sp_PC10) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_PC25) % out_offset : (sm(sp_PC25) % out_offset + sm(sp_PC25) % out_size - 1))
+! Elemental Carbon:
+      f_chmbusvol(sm(sp_EC10) % out_offset : (sm(sp_EC10) % out_offset + sm(sp_EC10) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_EC10) % out_offset : (sm(sp_EC10) % out_offset + sm(sp_EC10) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_EC25) % out_offset : (sm(sp_EC25) % out_offset + sm(sp_EC25) % out_size - 1))
+! Crustal Material
+      f_chmbusvol(sm(sp_CM10) % out_offset : (sm(sp_CM10) % out_offset + sm(sp_CM10) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_CM10) % out_offset : (sm(sp_CM10) % out_offset + sm(sp_CM10) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_CM25) % out_offset : (sm(sp_CM25) % out_offset + sm(sp_CM25) % out_size - 1))
+!  Sea-salt
+      f_chmbusvol(sm(sp_SS10) % out_offset : (sm(sp_SS10) % out_offset + sm(sp_SS10) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_SS10) % out_offset : (sm(sp_SS10) % out_offset + sm(sp_SS10) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_SS25) % out_offset : (sm(sp_SS25) % out_offset + sm(sp_SS25) % out_size - 1))
+! Aerosol-bound water:
+      f_chmbusvol(sm(sp_WA10) % out_offset : (sm(sp_WA10) % out_offset + sm(sp_WA10) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_WA10) % out_offset : (sm(sp_WA10) % out_offset + sm(sp_WA10) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_WA25) % out_offset : (sm(sp_WA25) % out_offset + sm(sp_WA25) % out_size - 1))
+! PM2.5 boundary occurs part way between bins 8 and 9:,
+! i.e between diameters 1.28 and 2.56; aerosize 0.64 to 1.28: 
+! aerosize = 0.005, 0.010, 0.020, 0.040, 0.080, 0.160, 0.320, 0.640, 1.280, 2.560, 5.120, 10.240, 20.480 
+!
+         ibin = 8
+         volratpm2p5 = (1.25**3 - aerosize(8)**3) / (aerosize(9)**3 - aerosize(8)**3)
+         do k = 1, nk
+           do i = 1, f_chm_ni
+! sp_SU, sp_AM, sp_NI, sp_OC, sp_PC, sp_EC, sp_CM, sp_SS
+! Sulphate
+             f_chmbusvol(sm(sp_SU25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_SU10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Ammonium
+             f_chmbusvol(sm(sp_AM25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_AM10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Nitrate
+             f_chmbusvol(sm(sp_NI25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_NI10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! SOA
+             f_chmbusvol(sm(sp_OC25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_OC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Primary OC
+             f_chmbusvol(sm(sp_PC25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_PC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Elementary Carbon
+             f_chmbusvol(sm(sp_EC25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_EC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Crustal Material
+             f_chmbusvol(sm(sp_CM25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_CM10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Sea-Salt
+             f_chmbusvol(sm(sp_SS25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_SS10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Aerosol-bound water
+             f_chmbusvol(sm(sp_WA25) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA25) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm2p5
+             f_chmbusvol(sm(sp_WA10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+           end do
+         end do
+!
+! aerosize = 0.005, 0.010, 0.020, 0.040, 0.080, 0.160, 0.320, 0.640, 1.280, 2.560, 5.120, 10.240, 20.480 
+!
+         ibin = 9
+         do k = 1, nk
+           do i = 1, f_chm_ni
+! sp_SU, sp_AM, sp_NI, sp_OC, sp_PC, sp_EC, sp_CM, sp_SS
+! Sulphate
+             f_chmbusvol(sm(sp_SU10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Ammonium
+             f_chmbusvol(sm(sp_AM10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Nitrate
+             f_chmbusvol(sm(sp_NI10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! SOA
+             f_chmbusvol(sm(sp_OC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Primary OC
+             f_chmbusvol(sm(sp_PC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Elementary Carbon
+             f_chmbusvol(sm(sp_EC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Crustal Material
+             f_chmbusvol(sm(sp_CM10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Sea-Salt
+             f_chmbusvol(sm(sp_SS10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+! Aerosol-bound water
+             f_chmbusvol(sm(sp_WA10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                               
+           end do
+         end do
+! Add the PM10 accumulator thus far to the PMtot accumulator:
+!  
+!  Add PM10 bins to PMtotal accumulator:
+!
+! Sulphate:
+      f_chmbusvol(sm(sp_SUT) % out_offset : (sm(sp_SUT) % out_offset + sm(sp_SUT) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_SUT) % out_offset : (sm(sp_SUT) % out_offset + sm(sp_SUT) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_SU10) % out_offset : (sm(sp_SU10) % out_offset + sm(sp_SU10) % out_size - 1))
+! Ammonium:
+      f_chmbusvol(sm(sp_AMT) % out_offset : (sm(sp_AMT) % out_offset + sm(sp_AMT) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_AMT) % out_offset : (sm(sp_AMT) % out_offset + sm(sp_AMT) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_AM10) % out_offset : (sm(sp_AM10) % out_offset + sm(sp_AM10) % out_size - 1))
+! Nitrate:
+      f_chmbusvol(sm(sp_NIT) % out_offset : (sm(sp_NIT) % out_offset + sm(sp_NIT) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_NIT) % out_offset : (sm(sp_NIT) % out_offset + sm(sp_NIT) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_NI10) % out_offset : (sm(sp_NI10) % out_offset + sm(sp_NI10) % out_size - 1))
+! Secondary organic aerosol:
+      f_chmbusvol(sm(sp_OCT) % out_offset : (sm(sp_OCT) % out_offset + sm(sp_OCT) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_OCT) % out_offset : (sm(sp_OCT) % out_offset + sm(sp_OCT) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_OC10) % out_offset : (sm(sp_OC10) % out_offset + sm(sp_OC10) % out_size - 1))
+! Primary organic carbon:
+      f_chmbusvol(sm(sp_PCT) % out_offset : (sm(sp_PCT) % out_offset + sm(sp_PCT) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_PCT) % out_offset : (sm(sp_PCT) % out_offset + sm(sp_PCT) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_PC10) % out_offset : (sm(sp_PC10) % out_offset + sm(sp_PC10) % out_size - 1))
+! Elemental Carbon:
+      f_chmbusvol(sm(sp_ECT) % out_offset : (sm(sp_ECT) % out_offset + sm(sp_ECT) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_ECT) % out_offset : (sm(sp_ECT) % out_offset + sm(sp_ECT) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_EC10) % out_offset : (sm(sp_EC10) % out_offset + sm(sp_EC10) % out_size - 1))
+! Crustal Material
+      f_chmbusvol(sm(sp_CMT) % out_offset : (sm(sp_CMT) % out_offset + sm(sp_CMT) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_CMT) % out_offset : (sm(sp_CMT) % out_offset + sm(sp_CMT) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_CM10) % out_offset : (sm(sp_CM10) % out_offset + sm(sp_CM10) % out_size - 1))
+!  Sea-salt
+      f_chmbusvol(sm(sp_SST) % out_offset : (sm(sp_SST) % out_offset + sm(sp_SST) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_SST) % out_offset : (sm(sp_SST) % out_offset + sm(sp_SST) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_SS10) % out_offset : (sm(sp_SS10) % out_offset + sm(sp_SS10) % out_size - 1))
+! Aerosol-bound water:
+      f_chmbusvol(sm(sp_WAT) % out_offset : (sm(sp_WAT) % out_offset + sm(sp_WAT) % out_size - 1)) =                     &
+         f_chmbusvol(sm(sp_WAT) % out_offset : (sm(sp_WAT) % out_offset + sm(sp_WAT) % out_size - 1)) +                  &
+         f_chmbusvol(sm(sp_WA10) % out_offset : (sm(sp_WA10) % out_offset + sm(sp_WA10) % out_size - 1))
+!
+!  The 10th size bin marks the split between PM10 and PMtot
+! aerosize = 0.005, 0.010, 0.020, 0.040, 0.080, 0.160, 0.320, 0.640, 1.280, 2.560, 5.120, 10.240, 20.480 
+!
+         ibin = 10
+         volratpm10 = (5.00**3 - aerosize(10)**3) / (aerosize(11)**3 - aerosize(10)**3)
+         do k = 1, nk
+           do i = 1, f_chm_ni
+! sp_SU, sp_AM, sp_NI, sp_OC, sp_PC, sp_EC, sp_CM, sp_SS
+! Sulphate
+             f_chmbusvol(sm(sp_SU10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SU10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_SUT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_SUT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Ammonium
+             f_chmbusvol(sm(sp_AM10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_AM10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_AMT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_AMT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Nitrate
+             f_chmbusvol(sm(sp_NI10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_NI10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_NIT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_NIT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! SOA
+             f_chmbusvol(sm(sp_OC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_OC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_OCT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_OCT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Primary OC
+             f_chmbusvol(sm(sp_PC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_PC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_PCT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_PCT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Elementary Carbon
+             f_chmbusvol(sm(sp_EC10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_EC10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_ECT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_ECT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Crustal Material
+             f_chmbusvol(sm(sp_CM10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_CM10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_CMT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_CMT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Sea-Salt
+             f_chmbusvol(sm(sp_SS10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_SS10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_SST) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_SST) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                             
+! Aerosol-bound water
+             f_chmbusvol(sm(sp_WA10) % out_offset + ik(i, k)) =                                          &
+                f_chmbusvol(sm(sp_WA10) % out_offset + ik(i, k)) +                                       &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))*volratpm10                               
+             f_chmbusvol(sm(sp_WAT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_WAT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                             
+           end do
+         end do
+!  Finally, the last two size bins (diameters 10.24 to 20.48, 20.48 to 40.96; 
+! aerosize 5.12 to 10.24 and 10.24 to 20.48) are added to the total PM accumulator:
+! aerosize = 0.005, 0.010, 0.020, 0.040, 0.080, 0.160, 0.320, 0.640, 1.280, 2.560, 5.120, 10.240, 20.480 
+!
+         do ibin = 11,12
+         do k = 1, nk
+           do i = 1, f_chm_ni
+! sp_SU, sp_AM, sp_NI, sp_OC, sp_PC, sp_EC, sp_CM, sp_SS
+! Sulphate
+             f_chmbusvol(sm(sp_SUT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_SUT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_SU) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Ammonium
+             f_chmbusvol(sm(sp_AMT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_AMT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_AM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Nitrate
+             f_chmbusvol(sm(sp_NIT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_NIT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_NI) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! SOA
+             f_chmbusvol(sm(sp_OCT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_OCT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_OC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Primary OC
+             f_chmbusvol(sm(sp_PCT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_PCT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_PC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Elementary Carbon
+             f_chmbusvol(sm(sp_ECT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_ECT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_EC) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Crustal Material
+             f_chmbusvol(sm(sp_CMT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_CMT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_CM) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                            
+! Sea-Salt
+             f_chmbusvol(sm(sp_SST) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_SST) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_SS) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                             
+! Aerosol-bound water
+             f_chmbusvol(sm(sp_WAT) % out_offset + ik(i, k)) =                                           &
+                f_chmbusvol(sm(sp_WAT) % out_offset + ik(i, k)) +                                        &
+               (f_chmbusdyn(sm(sp_WA) % bins_array (ibin) % dyn_offset + ik(i, k))) *                      &
+                f_chmbusvol(sm(sp_RHO) % vol_offset + ik(i, k))                                             
+           end do
+         end do
+        end do
+       end if  ! nb_bins=12
+!
+!
+! 4) Calculation of AQHI25 and AQHI10
+!    We must first ensure that NO2, O3, AC and AF has been converted to the proper unit (ug/m3 for PM, ppb for gases)
+
+      if (chm_aqhi_l) then
+         score_count = 0
+         do sp_index = 1, nsp_out_gas
+            if (list_out_gas(sp_index) == sp_O3) then
+               score_count = score_count + 1
+            else if (list_out_gas(sp_index) == sp_NO2) then
+               score_count = score_count + 1
+            end if
+         end do
+         if (score_count < 2) then
+            write(0, *) '### Error in mach_output ###'
+            write(0, *) '# Before computing AQHI, O3 and NO2 units must be converted to ppb'
+            write(0, *) '# At least one is missing '
+            write(0, *) '###         ABORT         ###'
+            call chm_stop('mach_output ', -1)
+         end if
+
+         do k = 1, nk
+            do i = 1, f_chm_ni
+
+!           write (chm_lun_out, *) 'NO2', f_chmbusvol(sm((sp_NO2)) % out_offset + ik(i, k))
+!           write (chm_lun_out, *) 'O3',  f_chmbusvol(sm((sp_O3))  % out_offset + ik(i, k))
+!           write (chm_lun_out, *) 'AF',  f_chmbusvol(sm((sp_AF))  % out_offset + ik(i, k))
+
+
+               f_chmbusvol(sm(sp_AQ25) % out_offset + ik(i, k)) = (10 / 10.4) * ( 100 * (exp(0.000871 *               &
+                                                                  f_chmbusvol(sm((sp_NO2)) % out_offset + ik(i, k)))  &
+                                                                  - 1 + exp(0.000537 *                                &
+                                                                  f_chmbusvol(sm((sp_O3)) % out_offset + ik(i, k)))   &
+                                                                  - 1 + exp(0.000487 *                                &
+                                                                  f_chmbusvol(sm(sp_AF) % out_offset + ik(i, k))) -1))
+
+               f_chmbusvol(sm(sp_AQ10) % out_offset + ik(i, k)) = (10 / 11.7) * ( 100 * (exp(0.000871 *               &
+                                                                  f_chmbusvol(sm((sp_NO2)) % out_offset + ik(i, k)))  &
+                                                                  - 1 + exp(0.000537 *                                &
+                                                                  f_chmbusvol(sm((sp_O3)) % out_offset + ik(i, k)))   &
+                                                                  - 1 + exp(0.000297 *                                &
+                                                                  f_chmbusvol(sm(sp_AC) % out_offset + ik(i, k))) -1))
+            end do
+         end do
+      end if
+   end if
+   deallocate(aeronum)
+   deallocate(aerovol)
+   deallocate(volpart)
+
+
+
+   if(local_dbg) then
+      write (chm_lun_out, *) 'Exiting mach_output'
+   end if
+
+  contains
+   integer function ik(ix, kz)
+      implicit none
+      integer, intent(in) :: ix, kz
+      ik = (kz - 1) * f_chm_ni + (ix - 1)
+   end function ik
+
+!
+end

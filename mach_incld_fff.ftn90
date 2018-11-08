@@ -1,0 +1,65 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_incld_fff.ftn90
+! Creation       : S. Menard,  W. Gong, S. Gravel, V. Bouchet, B. Pabla, GEM-MACH,  June 2008.
+!
+! Description    : Compute the charge balance function
+!
+! Extra info     :
+!
+! Arguments:
+!           IN
+!              T      -->    Initial component totals
+!                            1-Total S(IV)
+!                            2-Total NO3
+!                            3-Total Ammonia
+!                            4-Total Carbon Dioxide
+!                            5-Net charge due to SO4= and CAT1
+!              C      -->    Aq. proton concentration
+!                            C= 0.1*[H+] or 10.0 * [H+]
+!                            (units :  M/L)
+!              R      -->    Aqueous rate constant array
+!              B      -->    Aqueous variable coefficients
+!              nleft  -->    Grids Integration start from "nleft" into memory location
+!              nright -->    Grids Integration end at "nright" into memory location
+!              nptsnz -->    Total number of grids to integrate
+!           OUT
+!              Fnew   -->    Charge balance function
+!
+!=============================================================================
+
+subroutine mach_incld_fff (FNEW, t, c, r, b, nptsnz, nleft, nright)
+
+   implicit none
+
+   integer, intent(in)  :: nptsnz, nleft, nright
+   real,    intent(in)  :: r(nptsnz, 25), b(nptsnz, 5), t(nptsnz, 5), c(nptsnz)
+   real,    intent(out) :: fnew(nptsnz)
+!  Local variables
+   integer              :: ivec
+   real                 :: a1, a2, a3, a4
+
+   do ivec = nleft, nright
+      a1 = t(ivec, 1) * r(ivec, 2) / b(ivec, 2)
+      a2 = t(ivec, 2) * r(ivec, 8) / b(ivec, 2)
+      a4 = t(ivec, 4) * r(ivec, 15) / b(ivec, 2)
+      a3 = t(ivec, 3) * r(ivec, 12) * r(ivec, 17) / b(ivec, 2)
+
+      fnew(ivec) = c(ivec) - t(ivec, 5) - a1 / (r(ivec, 2) + r(ivec, 3) * c(ivec))         &
+                   - a2 / (r(ivec, 8) + r(ivec, 9) * c(ivec))                              &
+                   + a3 * c(ivec) / (r(ivec, 13) * r(ivec, 18) + r(ivec, 12) * r(ivec, 17) &
+                   * c(ivec)) - a4 / (r(ivec, 15) + r(ivec, 16) * c(ivec))                 &
+                   - r(ivec, 18) / (r(ivec, 17) * c(ivec))
+   end do
+
+return
+end

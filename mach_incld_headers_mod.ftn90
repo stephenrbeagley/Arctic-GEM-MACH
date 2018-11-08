@@ -1,0 +1,184 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_incld_headers_mod.ftn90
+! Creation       : H. Landry, Juillet 2008
+! Description    : Modules defining explicit interfaces for
+!                  mach in cloud subroutines
+!
+! Extra info     :
+!
+!============================================================================
+
+module mach_incld_headers_mod
+   use mach_cam_utils_mod, only: maxnsg
+   interface
+
+      subroutine mach_incld_concmp (t, C, r, b, nleft, nright, nptsnz)
+         integer nptsnz, nleft, nright
+         real    r(nptsnz,25), b(nptsnz,5), t(nptsnz,5)
+         real    c(nptsnz,12)
+      end subroutine mach_incld_concmp
+
+      subroutine mach_incld_diffun (kk, ng, gaz_conc, PG, DG, CDG, naq, AQ, PAQ, DAQ, CDAQ, Q,   &
+                                    ideriv, baq, PGSCAV, tempk, tempi, rtemp,             &
+                                    RAQ, psacw, rad1)
+         integer kk, ng, naq, ideriv
+         real, dimension(:)    :: gaz_conc, q, tempk, tempi, rtemp, psacw, rad1
+         real, dimension(:)    :: pg, dg, cdg
+         real, dimension(:, :) :: aq, paq, daq, cdaq, baq, raq
+         real, dimension(:, :, :) :: pgscav
+      end subroutine mach_incld_diffun
+
+      subroutine mach_incld_dochem (ng, GVEC, naq, AQVEC, qvec, tin, tout, idrf,                    &
+                                    NSTEP, INDEX, bvec, pgscavvec, tempkvec, tempivec, rtempvec,          &
+                                    raqvec, psacwvec, rad1vec, npts, n1, n2, n3, nptsnz)
+         integer ng, naq, idrf, npts, n1, n2, n3
+         integer nptsnz
+         real    tin, tout
+         real, dimension(:, :)     :: qvec
+         real, dimension(:, :, :)  :: bvec
+         real, dimension(:, :, :)  :: pgscavvec
+         real, dimension(:)        :: tempkvec
+         real, dimension(:)        :: tempivec
+         real, dimension(:)        :: rtempvec
+         real, dimension(:, :, :)  :: raqvec
+         real, dimension(:)        :: psacwvec
+         real, dimension(:)        :: rad1vec
+         integer nstep, index
+         real, dimension(:, :)     :: gvec
+         real, dimension(:, :, :)  :: aqvec
+      end subroutine mach_incld_dochem
+
+      subroutine mach_incld_fff (FNEW, t, c, r, b, nptsnz, nleft, nright)
+         integer nptsnz, nleft, nright
+         real, dimension(:, :) :: r
+         real, dimension(:, :) :: b, t
+         real, dimension(:)    :: fnew, c
+      end subroutine mach_incld_fff
+
+      subroutine mach_incld_findh (T, C, R, B, nleft, nright, nptsnz)
+         integer nptsnz, nleft, nright
+         real, dimension(:, :) :: r
+         real, dimension(:, :)  :: b, t
+         real, dimension(:, :) :: c
+      end subroutine mach_incld_findh
+
+      real function mach_incld_fn_dtnew (delt, k)
+         integer k
+         real    delt
+      end function mach_incld_fn_dtnew
+
+      subroutine mach_incld_funeq (y, c, b, nleft, nright, nptsnz)
+         integer nptsnz, nleft, nright
+         real, dimension(:, :)  :: b, y
+         real, dimension(:, :) :: c
+      end subroutine mach_incld_funeq
+
+      subroutine mach_incld_intrqf (naq, aq, ppaq, ddaq, ccdaq, q, f13, ideriv, temp)
+         integer naq, ideriv
+         real    temp, f13
+         real, dimension(:, :) :: aq
+         real, dimension(:)    :: q
+         real, dimension(:, :) :: ppaq, ddaq, ccdaq
+      end subroutine mach_incld_intrqf
+
+      subroutine mach_incld_intsca_il (kk, n1, n2, ng, n3, n4, naq, nstep, ideriv, IMIN,         &
+                           KITER, DT, GAZ_CONC, AQ, q, b, PGSCAV, tempk, tempi, rtemp, &
+                           RAQ, psacw, rad1)
+         integer kk, n1, n2, n3, n4, ng, naq, nstep, ideriv
+         real, dimension(:)    :: q
+         real, dimension(:, :) :: b
+         real, dimension(:)    :: tempk, tempi, rtemp, psacw, rad1
+         integer imin, kiter
+         real    dt
+         real, dimension(:, :)   :: raq
+         real, dimension(:)       :: gaz_conc
+         real, dimension(:, :)    :: aq
+         real, dimension(:, :, :) :: pgscav
+      end subroutine mach_incld_intsca_il
+
+      subroutine mach_incld_main(GAZ_CONC, AEROCON, Q_BIN, tempk, psacw, RAD1, rcrit, zpres, npts, nptsnz, ipos_g, &
+                                 rad1_bulk, ibulk, jlat, CLD_CHM, adt2, FLUX, fctr, nswdep, AERONUM,        &
+                                 maxcnz, maxnsz)
+         integer npts, nptsnz, ibulk, jlat, nswdep
+         integer maxcnz, maxnsz
+         integer ipos_g(maxnsg)
+         real    adt2
+         real, dimension(:, :)       :: tempk, psacw, rcrit, rad1_bulk, zpres, fctr
+         real, dimension(:, :, :)    :: cld_chm
+         real, dimension(:, :, :, :) :: flux
+         real, dimension(:, :, :)    :: rad1, gaz_conc, aeronum
+         real, dimension(:, :, :, :) :: q_bin
+         real, dimension(:, :, :, :) :: aerocon
+      end subroutine mach_incld_main
+
+      subroutine mach_incld_rates (ng, gaz_conc, DG, PG, CDG, naq, aq1, DAQ1, PAQ1, CDAQ1, r1, b1,     &
+                                   aq2, DAQ2, PAQ2, CDAQ2, r2, b2, q1, q2, ideriv)
+         integer ng, naq, ideriv
+         real    q1, q2
+         real, dimension(:) :: gaz_conc
+         real, dimension(:) :: aq1, r1, b1, aq2, r2, b2, dg, pg, cdg
+         real, dimension(:) :: daq1, paq1, cdaq1, daq2, paq2, cdaq2
+      end subroutine mach_incld_rates
+
+      subroutine mach_incld_shift3d_aero (icheck1, N1, N2, N3, JGRID, &
+                                          GAZ_CONC, AQ, Q, PGSCAV, TEMPK, TEMPI, RTEMP, PSACW, RAD1, nptsnz, FCTR)
+         integer nptsnz
+         integer, dimension(:)  :: icheck1, jgrid
+         integer n1, n2, n3
+         real, dimension(:)       :: tempk, tempi, rtemp, psacw, rad1, fctr
+         real, dimension(:, :, :) :: aq, pgscav
+         real, dimension(:, :)    :: gaz_conc, q
+      end subroutine mach_incld_shift3d_aero
+
+      subroutine mach_incld_soleq (b, gaz_conc, aq1, q1, q2, t, ti, rt, pgscav, rad1, nptsnz, n1, n2, n3)
+         integer nptsnz, n1, n2, n3
+         real, dimension(:, :, :) :: b, pgscav
+         real, dimension(:)       :: q1, q2, t, ti, rt, rad1
+         real, dimension(:, :)    :: gaz_conc, aq1
+      end subroutine mach_incld_soleq
+
+      subroutine mach_incld_steady (X, b)
+         real, dimension(:) :: b, x
+      end subroutine mach_incld_steady
+
+
+      subroutine mach_incld_steady1 (X, b, nptsnz)
+         integer :: nptsnz
+         real, dimension(:, :, :) :: b, x
+      end subroutine mach_incld_steady1
+
+      subroutine mach_incld_upaqr (AQ, PGSCAV, q1, q2, rad1, t, ti, rtw, itask, inew, R, b, gaz_conc)
+         integer itask, inew
+         real    q1, q2, rad1, t, ti, rtw
+         real, dimension(:)    :: gaz_conc
+         real, dimension(:, :) :: b, r, aq, pgscav
+      end subroutine mach_incld_upaqr
+
+      subroutine mach_incld_upaqr1(AQ, PGSCAV, q1, q2, rad1, t, ti, rtw, R, b, gaz_conc, nptsnz, n1, n2, n3)
+         integer nptsnz, n1, n2, n3
+         real, dimension(:)       :: q1, q2, rad1, t, ti, rtw
+         real, dimension(:, :)    :: gaz_conc
+         real, dimension(:, :, :) :: b, r, aq, pgscav
+      end subroutine mach_incld_upaqr1
+
+
+      subroutine mach_incld_upaqr2(AQ, PGSCAV, q1, q2, rad1, t, ti, rtw, R, b, gaz_conc, nleft, nright, nptsnz, n2, n3)
+         integer nptsnz
+         integer nleft, nright, n2, n3
+         real, dimension(:)       :: q1, q2, rad1, t, ti, rtw
+         real, dimension(:, :)    :: gaz_conc, aq
+         real, dimension(:, :, :) :: b, r, pgscav
+      end subroutine mach_incld_upaqr2
+
+   end interface
+end module mach_incld_headers_mod

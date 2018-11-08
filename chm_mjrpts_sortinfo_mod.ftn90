@@ -1,0 +1,53 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_sortinfo_mod.ftn90
+! Creation       : A. Kallaur, H. Landry, Mai 2008
+! Description    : Modules defining variables and arrays containing pertinent
+!                  information to the sorting (by i and j) of the
+!                  major point source emissions fields.
+!
+! Extra info     :
+!
+!============================================================================
+
+module chm_mjrpts_sortinfo_mod
+
+!     Name              Description
+!======================================================================
+!
+!   nb_sources          Number of point sources AFTER lateral boundary region filtering.
+!
+!   nb_sources_in       Number of point sources BEFORE (as read in from file) lateral boundary region
+!                       filtering.
+!
+!   pt_bnd_mask         Logical array, of length nb_sources (the value as read in from file)
+!                       which contains a FALSE value for all points that are rejected due
+!                       to being located in the model(physics) boundary region.
+!
+!   sort_xref           Intereger Array(nb_sources), where destination
+!                       index positions are stored after double sort
+!                       over J, and then I.
+!
+!   jcrdlimits          Integer Array(2D), where
+!                       col1 : starting index for group of i coords element
+!                              belonging to slab j
+!                       col2 : end index "" "" "".
+!
+   save
+
+   integer                            :: nb_sources, nb_sources_in
+   integer,  dimension(:)   , pointer :: sort_xref
+   logical,  dimension(:)   , pointer :: pt_bnd_mask
+   integer,  dimension(:, :), pointer :: jcrdlimits
+   integer                            :: nb_me_species
+
+end module chm_mjrpts_sortinfo_mod

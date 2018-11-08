@@ -1,0 +1,79 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_q_sort.ftn90
+! Creation       : A. Kallaur,  mars 2007
+! Description    : Use recursive qsort technique to sort
+!                  array x, and store nes index locations in
+!                  array y. Sorting technique accordin to
+!                  Wirth's "Algorithms and Data Structures"
+!
+! Arguments: IN
+!              l, r -> left, right, indices, respectively.
+!            OUT
+!              x   -> Array of values to be sorted
+!              y   -> "sorted" arrays of indeces.
+!
+!==============================================================================
+!
+recursive subroutine chm_q_sort (X, Y, l, r)
+   use chm_utils_mod
+   implicit none
+   integer, intent(in) :: l, r
+   real   , intent(inout) :: x(r)
+   integer, intent(inout) :: y(r)
+!
+! Declare local variables.
+!
+   integer                :: i, j, ti
+   real                   :: v, tr
+!
+! Taken from N. Wirth's "algorithms + data structures = programmes"
+! as a source of inspiration.
+!
+   i = l
+   j = r
+   v = x(int((l + r) / 2))
+   do
+      if (i > r .or. j <= 0) then
+         return
+      end if
+      do while (x(i) < v )
+         i = i + 1
+      enddo
+      do while (v < x(j) )
+         j = j - 1
+      enddo
+      if (i <= j) then
+         tr = x(i)
+         x(i) = x(j)
+         x(j) = tr
+
+         ti = y(i)
+         y(i) = y(j)
+         y(j) = ti
+
+         i = i + 1
+         j = j - 1
+      else
+         exit
+      endif
+   enddo
+   if (l < j) then
+      call chm_q_sort(X, Y, l, j)
+   endif
+   if (i < r) then
+      call chm_q_sort(X, Y, i, r)
+   endif
+
+end subroutine chm_q_sort
+
+

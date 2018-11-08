@@ -1,0 +1,240 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_plumerise.ftn90
+! Creation       : H. Landry, A. Kallaur, S. Menard, March 2008 adaptation for GEM-MACH
+!                  Wanmin Gong, for AURAMS 2004
+!                  Original version from Janusz Pudykiewicz for CHRONOS 1995
+!
+! Description    : Assembly of major-point-source emission data for calculation
+!                  with Eulerian transport model simulating atmospheric
+!                  oxidants. Plume rise formula based on Briggs (1984).
+! Arguments:
+!            IN
+!                ni, nk            -> vertical slab dimensions
+!                cell_area         -> Area of a grid cell (m^2)
+!                time_step         -> Time step length (s)
+!                gz_chm_masl       -> height of the model levels (m above sea level)
+!                air_density       -> density of air (kg / m3)
+!                temperature       -> Model temperature (K)
+!                uu, vv            -> Wind components
+!                boundlayer_height -> eight of the boundary layer (m above ground)
+!                obukhov_length    -> Monin-Obukhov length (m)
+!                friction_velocity -> Friction Speed U* (in m / s)
+!                slab_num          -> Slab number
+!                f_chm_bdyn_siz    -> Size of chemical dynamic bus (advected chem. species)
+!
+!             IN/OUT
+!                f_chmbusdyn       -> Chem. dyn bus.
+!
+! Extra info     :
+!
+!============================================================================
+
+subroutine mach_plumerise (ni, nk, cell_area, time_step, gz_chm_masl, air_density, &
+                           temperature, uu, vv, boundLayer_height,                 &
+                           obukhov_length, friction_velocity, F_CHMBUSDYN,         &
+                           slab_num, f_chm_bdyn_siz, fland)
+   use chm_utils_mod
+   use chm_consphychm_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use chm_mjrpts_species_idx_mod
+   use chm_mjrpts_lnklst_mod
+   use chm_ptopo_grid_mod
+   use chm_mjrpts_sortinfo_mod
+   use mach_headers_mod, only: mach_plumerise_weight, mach_plumerise_weight4fire, mach_plumerise_apply
+   use mach_gas_chemicbi_mod, only: lucprm
+   implicit none
+
+!   Subroutine Arguments
+
+   integer, intent(in) :: ni, nk
+   real,    intent(in) :: cell_area
+   real,    intent(in) :: time_step
+   real,    intent(in) :: gz_chm_masl(ni, nk), air_density(ni, nk), temperature(ni, nk), uu(ni, nk), vv(ni, nk)
+   real,    intent(in) :: boundLayer_height(ni)
+   real,    intent(in) :: obukhov_length(ni)
+   real,    intent(in) :: friction_velocity(ni)
+   integer, intent(in) :: slab_num
+   integer, intent(in) :: f_chm_bdyn_siz
+   real,    intent(in) :: fland(ni,lucprm)
+   real,    intent(inout) :: f_chmbusdyn(f_chm_bdyn_siz)
+
+!  Local variables
+   logical :: local_dbg
+   integer :: i, k, cur_source, sp_index, stack_i, bin_nb  ! loop indices
+   integer :: index_above_boundlayer(ni)
+   integer :: stack_bgn, stack_end        ! Indeces representing beginning/end within mjpts source list
+   integer :: stack_tot                   ! Total number of stack to treat for this slab.
+   real    :: gz_magl(ni, nk)             ! height of the model levels in meter above ground
+   real    :: safe_obukhov_length(ni)     ! Safe obukhov_length used only to avoid the possibility of a division by zero
+   real    :: weight(nk)                  ! Weight of each cell in the column over the point source
+   real    :: nweight(nk)
+   real    :: emiss_rate
+
+   real    :: thickness(ni, nk)
+   integer :: pbl_indx
+   integer :: pbl_nlay
+   real    :: pbl_istk(nb_sources)
+   integer :: pbl_lydx(nb_sources)
+   real    :: pl_top, pl_bot
+
+
+! Constants
+   real, parameter :: THRESHOLD = 1.e-06
+
+   local_dbg = (.false. .or. global_debug)
+
+   if (local_dbg) then
+      write(chm_lun_out, *) ' '
+      write(chm_lun_out, *) '*****************************************************************'
+      write(chm_lun_out, *) 'ENTER MACH PLUMERISE SUBROUTINE'
+      write(chm_lun_out, *) 'Processing slab number: ', slab_num
+   endif
+!
+!  Are there any points at all for this particular computational slab?
+!
+!   if (jcrdlimits(slab_num, 1) <= 0 ) then
+!      if (local_dbg) then
+!         write(chm_lun_out, *) 'No Major Point Source Stacks to treat for slab: ',slab_num
+!      endif
+!      return
+!   endif
+!
+   index_above_boundlayer = 1
+   thickness = 0.0
+
+   safe_obukhov_length = obukhov_length
+
+   do i = 1, ni
+
+      if (abs(obukhov_length(i)) < THRESHOLD) then
+         safe_obukhov_length(i) = sign(THRESHOLD, obukhov_length(i))
+      end if
+
+      do k = nk, 1, -1
+         ! Compute height of the model levels in meter above ground-level
+         gz_magl(i, k) = gz_chm_masl(i, k) - gz_chm_masl(i, nk)
+      end do
+
+      do k = nk, 1, -1
+         ! Evaluate position of boundary layer from the ground up, for all grid point
+         index_above_boundlayer(i) = k
+         if (gz_magl(i, k) >= boundLayer_height(i)) then
+            exit
+         end if
+      end do
+      do k = nk, 2, -1
+         thickness(i,k) = gz_magl(i, k-1) - gz_magl(i, k)
+      end do
+
+   end do
+
+     pbl_istk = 0.0
+     pbl_lydx = 0  !integer layer index
+     do cur_source = 1, nb_sources
+         stack_i = nint(mjpt_gilc(cur_source))
+         pbl_istk(cur_source) = boundLayer_height(stack_i)
+         pbl_lydx(cur_source) = index_above_boundlayer(stack_i)
+     enddo
+!
+   do cur_source = 1,nb_sources
+      if (nint(mjpt_gjlc(cur_source)) == slab_num) then
+         stack_i = nint(mjpt_gilc(cur_source))
+      else
+         cycle
+      endif
+!
+! Check for anthropogenic vs. fire source types
+      if (nint(mjpt_typ(cur_source)) == 500 ) then
+        write(chm_lun_out, *) '>> Calling mach_plumerise_fire: Cur_source: ',cur_source
+         nweight = 0.0
+         weight  = 0.0
+         call mach_plumerise_weight4fire(cur_source, ni, nk, gz_magl,                   &
+                                 temperature, uu, vv, boundLayer_height,           &
+                                 index_above_boundlayer, safe_obukhov_length,      &
+                                 friction_velocity, fland, lucprm, pl_top, pl_bot, weight)
+         print *, 'pl_top, pl_bot, bl_hgt: ', pl_top, pl_bot, pbl_istk(cur_source)
+         do k = nk, 2, -1
+            nweight(k) = thickness(stack_i,k) * weight(k)  !! to get unitless weighing factor (nweight)
+         enddo
+         print *, 'fir_brig_nweight:',cur_source, &
+                                ' wt: ',nweight(nk-25:nk)
+         print *, 'fland: ', (fland(stack_i,k),k=1,lucprm)
+!
+      else
+! Calculate values for weight function (in the vertical, values 0.0<=w(i)<=1.0,
+! with sigma(i=1,nk)w(i)=1.0)
+!
+      weight = 0.0
+      call mach_plumerise_weight(cur_source, ni, nk, gz_magl,                 &
+                                 temperature, uu, vv, boundLayer_height,      &
+                                 index_above_boundlayer, safe_obukhov_length, &
+                                 friction_velocity, weight)
+
+       if (local_dbg) then
+         write(chm_lun_out, *) 'weight :'
+         write(chm_lun_out, *) weight
+       end if
+!
+      end if
+
+
+      do sp_index = 1, nb_species
+!  Apply plumerise injection for gases to the chemistry dynamical bus
+
+         if (associated(species_master(sp_index) % me_list)) then
+            if (local_dbg) then
+               write(chm_lun_out, *) 'FOUND GAS SPECIES {DYN,mjpt} NAME : ', species_master(sp_index) % dyn_name, &
+                                                                             species_master(sp_index) % me_name
+               write(chm_lun_out, *) 'current source number : ', cur_source
+               write(chm_lun_out, *) 'current source value  : ', species_master(sp_index) % me_list(cur_source)
+            end if
+            emiss_rate = species_master(sp_index) % me_list(cur_source)
+
+            if (emiss_rate > 0) then
+                  call mach_plumerise_apply(f_chmbusdyn(species_master(sp_index) % dyn_offset),                   &
+                                            emiss_rate, weight,air_density, ni, nk, stack_i, time_step, cell_area)
+            end if
+
+!  Apply plumerise injection for PM to the chemistry dynamical bus 
+         else if (species_master(sp_index) % nb_bins > 1) then
+            do bin_nb = 1, species_master(sp_index) % nb_bins
+               if (associated(species_master(sp_index) % bins_array(bin_nb) % me_list)) then
+                  if (local_dbg) then
+                     write(chm_lun_out, *) 'FOUND PM SPECIES {DYN,mjpt} NAME : ',                      &
+                                             species_master(sp_index) % bins_array(bin_nb) % dyn_name, &
+                                             species_master(sp_index) % bins_array(bin_nb) % me_name
+                     write(chm_lun_out, *) 'current source number : ', cur_source
+                     write(chm_lun_out, *) 'current source value  : ',                                 &
+                                             species_master(sp_index) % bins_array(bin_nb) % me_list(cur_source)
+                  end if
+                  emiss_rate = species_master(sp_index) % bins_array(bin_nb) % me_list(cur_source)
+
+                  if (emiss_rate > 0) then
+                     call mach_plumerise_apply(f_chmbusdyn(species_master(sp_index) % bins_array(bin_nb) % dyn_offset), &
+                                               emiss_rate, weight,air_density, ni, nk, stack_i, time_step, cell_area)
+                  end if
+               end if
+            end do
+         end if
+      end do
+   end do
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'EXIT MACH PLUMERISE SUBROUTINE'
+      write(chm_lun_out, *) ' '
+      write(chm_lun_out, *) '*****************************************************************'
+   end if
+
+return
+end subroutine mach_plumerise

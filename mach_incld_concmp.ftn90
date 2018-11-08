@@ -1,0 +1,64 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_incld_concmp.ftn90
+! Creation       : S. Menard, W. Gong, S. Gravel, GEM-MACH, June 2008.
+!
+! Description    : Compute gas and aqueous species concentration calculated from [H+]
+!
+! Extra info     :
+!
+! Arguments:
+!           IN
+!
+!             nleft         -->   Grids Integration start from "nleft" into memory location
+!             nright        -->   Grids Integration end at     "nright" into memory location
+!             nptsnz        -->   Total number of grids to integrate
+!             T             -->   Component Total in
+!                                     T(ivec,1) : Total S(IV)
+!                                     T(ivec,2) : Total NO3
+!                                     T(ivec,3) : Total AMMONIA
+!                                     T(ivec,4) : Total CARBON DIOXIDE
+!                                     T(ivec,5) : Net charge due to SO4
+!                                     and CAT1
+!             R            -->    Aqueous rate constant array
+!             B            -->    Aqueous variable coefficients
+!
+!           OUT
+!             C            -->   Gas and Aq. species concentration calculated from [H+]
+!
+!=============================================================================
+
+subroutine mach_incld_concmp (t, C, r, b, nleft, nright, nptsnz)
+
+   implicit none
+
+   integer, intent(in)    :: nptsnz, nleft, nright
+   real,    intent(in)    :: r(nptsnz,25), b(nptsnz,5), t(nptsnz,5)
+   real,    intent(inout) :: c(nptsnz,12)
+
+!local variables
+   integer :: ivec
+
+   do ivec = nleft, nright
+      c(ivec, 1)  = t(ivec, 1) * r(ivec, 3) * c(ivec, 5) / (r(ivec, 2) + r(ivec, 3) * c(ivec, 5))
+      c(ivec, 2)  = t(ivec, 2) * r(ivec, 9) * c(ivec, 5) / (r(ivec, 8) + r(ivec, 9) * c(ivec, 5))
+      c(ivec, 4)  = t(ivec, 4) * r(ivec, 16) * c(ivec, 5) / (r(ivec, 15) + r(ivec, 16) * c(ivec, 5))
+      c(ivec, 10) = r(ivec, 18) / (r(ivec, 17) * c(ivec, 5))
+      c(ivec, 3)  = t(ivec, 3) * r(ivec, 13) * c(ivec, 10) / (r(ivec, 12) + r(ivec, 13) * c(ivec, 10))
+      c(ivec, 6)  = (t(ivec, 1) - c(ivec, 1)) / b(ivec, 2)
+      c(ivec, 7)  = (t(ivec, 2) - c(ivec, 2)) / b(ivec, 2)
+      c(ivec, 8)  = (t(ivec, 3) - c(ivec, 3)) / b(ivec, 2)
+      c(ivec, 9)  = r(ivec, 15) * c(ivec, 4) / (b(ivec, 2) * r(ivec, 16) * c(ivec, 5))
+  end do
+
+return
+end

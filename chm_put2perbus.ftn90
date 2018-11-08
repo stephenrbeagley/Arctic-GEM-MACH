@@ -1,0 +1,143 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_put2perbus.ftn90
+! Creation       : A. Kallaur - december 2006
+! Description    : Transfer information read on (l_nixl_nj) grid to
+!                 "slabbed(rowed)" chem. bus space.
+!
+! Arguments
+!            IN
+!               field         --> Field to put in chm_busper3D
+!               l_ninj        --> l_ni *l_nj
+!               chm_bper_len  --> Dimension of chm_busper3D
+!               chm_bper_siz  --> Size of chemistry permanent bus
+!               nmvr          --> Nomvar
+!
+!            OUT
+!               chm_busper3D  --> Chemistry permanent bus
+!
+!==============================================================================
+subroutine chm_put2perbus(field, l_ninj, CHM_BUSPER3D, chm_bper_len, chm_bper_siz, nmvr)
+   use chm_utils_mod
+   use chm_buses_mod
+   use chm_ptopo_grid_mod
+   implicit none
+!
+!     Declare subroutine argument list
+!
+   character(len=4), intent(in)  :: nmvr
+   integer,          intent(in)  :: l_ninj, chm_bper_len, chm_bper_siz
+   real,             intent(in)  :: field(l_ninj)
+   real,             intent(out) :: chm_busper3D(chm_bper_len)
+
+!
+!     Declare external function variables
+!
+   integer  longueur
+   external longueur
+!
+!     Declare local variables
+!
+   integer i, j, pid, mul, nlv, offc, offg
+   logical local_dbg
+
+   pid = -1
+!
+!    Set local debug switch
+!
+   local_dbg = (.false. .or. global_debug)
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Inside chm_put2perbus'
+      write(chm_lun_out, *) 'ni*nj        = ', l_ninj
+      write(chm_lun_out, *) 'chm_{ni, nj}  = ', chm_ni, chm_nj
+      write(chm_lun_out, *) 'chm_bper_len = ', chm_bper_len
+      write(chm_lun_out, *) 'chm_bper_siz = ', chm_bper_siz
+      write(chm_lun_out, *) 'chmpertop    = ', chmpertop
+      write(chm_lun_out, *) 'CHEMPER BUS INFO:'
+      write(chm_lun_out, *) 'name       bgad    len   idyn   stag  ln/ml    mul  nmlev'
+      do i=1, chmpertop
+         write(chm_lun_out, 10)  chmpernm (i, 2)(1:longueur(chmpernm (i, 2))),      &
+                                 chmperpar(i, 1), chmperpar(i, 2), chmperpar(i, 3), &
+                                 chmperpar(i, 4), chmperpar(i, 5), chmperpar(i, 6), &
+                                 chmperpar(i, 7)
+      enddo
+      write (chm_lun_out, *) ' '
+   endif
+!
+!     Locate the offset index for the specie in question.
+!
+   do i = 1, chmpertop
+      if (chmpernm(i, 2)(1:longueur(chmpernm (i, 2))) == nmvr) then
+         pid = i
+         exit
+      end if
+   enddo
+
+   if (pid == -1) then
+      write(0, *) '### Error in chm_put2perbus ###'
+      write(0, *) "# variable ", nmvr, "not found in chemical permanent bus"
+      write(0, *) '###           ABORT         ###'
+      call chm_stop('chm_put2perbus', -1)
+   end if
+
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Offset for ', nmvr, ' found at ', pid
+   end if
+!
+!  Transfer from 2D -> slabbed bus
+!
+
+   do j = 1, chm_nj
+      do mul = 1, chmperpar(pid, 6)
+         do nlv = 1, chmperpar(pid, 7)
+            offc = chm_bper_siz * (j - 1) + &
+                   chm_ni * (mul - 1)     + &
+                   chm_ni * (nlv - 1)     + &
+                   chmperpar(pid, 1)
+            offg = chm_l_ni*chm_l_nj*(mul-1)+ &
+                   chm_l_ni*chm_l_nj*(nlv-1)+ &
+                   chm_l_ni*(j+chm_offj-1)  + &
+                   chm_offi
+            do i = 1, chm_ni
+               if (((j == 1).or.(j == chm_nj/2).or.(j == chm_nj)) .and. &
+                   ((i == 1).or.(i == chm_ni/2).or.(i == chm_ni))) then
+                  if (local_dbg) then
+                     write(chm_lun_out, 11) i, j, offc, offg, offc+i-1, offg+i, field(offg+i)
+                  endif
+               endif
+               chm_busper3D(offc+i-1)=field(offg+i)
+            enddo ! i=1, chm_ni
+            if (((j == 1).or.(j == chm_nj/2).or.(j == chm_nj)) .and. &
+                ((i == 1).or.(i == chm_ni/2).or.(i == chm_ni))) then
+                   if ((chm_lun_out>0).and.local_dbg) write(chm_lun_out, *) ' '
+            end if
+         enddo ! nlv = 1 , chmperpar(pid, 7)
+      enddo    ! mul = 1, chmperpar(pid, 6)
+   enddo       ! j = 1, chm_nj
+ 10   format(a6, 2x, 7i7)
+ 11   format('i, j ', 2i5, ' off{c, g}:', 2i9, ' offc+i-1=', i9, ' offg+i-1=', i9, &
+            '  f(offg+i-1)=', f12.3)
+   return
+end
+!
+! CHMPERPAR    (1) : beginning of each field within the permanent bus
+!              (2) : length    "   "     "      "    "     "      "
+!              (3) : 0 if the field needs not be initialized by the dynamics
+!                    1 "   "    "   must  be initialized by the dynamics
+!              (4) : 0 if the field is NOT on a staggered vertical grid
+!                  : 1 if the field is     on a staggered vertical grid
+!              (5) : length of each field divided by multiplicity factor
+!                    (either ni or ni*nk)
+!              (6) : multiplicity factor
+!              (7) : number of levels (1 or nk)
+!

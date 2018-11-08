@@ -1,0 +1,75 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_gas_chemicbi_mod.ftn90
+! Creation       : B. Pabla, P. Makar for GEM-MACH, Feb 2007
+!
+! Description    : Initialize variables in shared module
+!
+! Extra info:
+!
+!============================================================================
+module mach_gas_chemicbi_mod
+   use chm_utils_mod
+
+   implicit none
+   save
+
+   integer, parameter :: maxnsa = 29     ! 29 is number of advected species
+   integer, parameter :: npres  = 5      ! 5 ranges of pressure
+   integer, parameter :: ntemp  = 6      ! 6 ranges of temperature
+   integer, parameter :: ncoeff = 7      ! 7 types of coefficents
+   integer, parameter :: lucprm = 15     ! 15 land use categories used in Robichaud Dev. vel. scheme
+   integer, parameter :: nsn    = 5      ! 5 Seasonal periods in Robichaud Dev. vel. scheme
+   integer  imod
+
+!  Note : Dust is no longer transported in GEM-MACH
+!  intialises in the vertical for some species. Please note that vertical
+!  levels in GEM-Mach goes from top to bottom.
+   real, parameter        :: ch4    = 1.6
+   real, parameter        :: o2     = 2.1e05
+   real, parameter        :: aircon = 1.0e06
+
+   real, dimension(npres) :: pres   = (/ 0.2,  0.4,  0.6,  0.8,  1.0 /)
+   real, dimension(ntemp) :: temp   = (/ 210.0, 230.0, 250.0, 270.0, 290.0, 310.0 /)
+   integer, parameter :: maxlev = 200
+   real, dimension(maxlev) :: c2h6
+
+!  following variables are initialised in mach_gas_chemi
+   real    :: hstart, hsub(2), hmax(2)
+   real*8  :: yming, ymin2g, ymin3g
+   real    :: cpar, cole, caro, xx, y, z, xc, yc, zc
+   real    :: balka(ncoeff, ntemp, npres)
+
+   contains
+      subroutine init_c2h6(nk, hybm)
+         integer, intent(in) :: nk
+         real, dimension(nk), intent(in) :: hybm
+
+         integer k
+         real, parameter :: layerboundary1 = 0.35e-01, layerboundary2 = 0.81e-01 ! Height of the treshold values (dm)
+         real, parameter :: layerconcentration1 = 0.001, layerconcentration2 = 0.003, layerconcentration3 = 0.005
+
+         c2h6 = -1
+
+         do k = 1, nk
+            if (hybm(k) < layerboundary1) then
+               c2h6(k) = layerconcentration1
+            else if (hybm(k) < layerboundary2) then
+               c2h6(k) = layerconcentration2
+            else
+               c2h6(k) = layerconcentration3
+            end if
+         end do
+
+      end subroutine init_c2h6
+
+end module mach_gas_chemicbi_mod

@@ -1,0 +1,158 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_mjrpts_get_emissions.ftn90
+! Creation       : A. Kallaur, H. Landry, S. Menard - janvier/fevrier 2007
+! Description    : Read in the Major point source time dependant emission data.
+!                  If model time step = 0 (gem_tstep_num=0), also read in
+!                  point source time independant info. (lats, lons, stk height, etc ...)
+!
+! Extra info     :
+!
+! Arguments:
+!            IN
+!              gem_tstep_num   -->  Model step number (since beginning of integration)
+!              pe_file         -->  Assembled major point source filename
+!              etype           -->  Emissions type (MJ) -> Major Point source
+!
+!==============================================================================
+!
+subroutine chm_mjrpts_get_emissions(gem_tstep_num, pe_file, etype)
+   use chm_utils_mod
+   use chm_species_info_mod
+   use chm_datime_mod
+   use chm_mjrpts_sortinfo_mod
+   use chm_headers_mod, only: chm_mjrpts_fstread, chm_mjrpts_trim, chm_mjrpts_assign_fld, &
+                              chm_fst_openfile,   chm_fst_closefile
+   implicit  none
+
+  integer,             intent(in) :: gem_tstep_num
+  character (len = *), intent(in) :: pe_file
+  character (len = *), intent(in) :: etype
+
+!
+! Local variables
+!
+  integer                         :: i, bin_nb, j1, j2, key
+  integer                         :: fu_mjrpts_in, nsl
+  real, allocatable, dimension(:) :: pa,pa_tr
+  logical                         :: local_dbg
+  integer  fstinf
+  external fstinf
+
+   local_dbg = (.false. .or. global_debug)
+
+   nb_me_species = 0
+
+   if (nb_sources <= 0) then
+      write(0, *) '### Error in chm_mjrpts_get_emissions ###'
+      write(0, *) '# nb_sources MUST BE > 0 at this point'
+      write(0, *) '###                 ABORT             ###'
+      call chm_stop('chm_mjrpts_get_emissions', -1)
+   endif
+
+   if (local_dbg) then
+      write(chm_lun_out, *) ' In chm_mjrpts_get_emissions:'
+      write(chm_lun_out, *) ' gem_tstep_num = ', gem_tstep_num
+      write(chm_lun_out, *) ' pe_file       = ', pe_file
+      write(chm_lun_out, *) ' etype         = ', etype
+      write(chm_lun_out, *) ' nb_species    = ', nb_species
+   endif
+!
+!  First off, attempt to canonically open point source file stored in RPN/FST format.
+!
+   fu_mjrpts_in = 0
+   call chm_fst_openfile(FU_MJRPTS_IN, pe_file, 'RND+OLD', 'RND')
+!
+!  Obtain the number of points per record and alocate space for
+!  work fields. It is assumed that all records are of equal length.
+!  If not -> abort.
+!
+   key = fstinf(fu_mjrpts_in, nsl, j1, j2, -1, ' ', -1, -1, -1, ' ', ' ')
+   if (nsl > 0) then
+      if (local_dbg) write(chm_lun_out, *) 'Found  ', nsl, ' point sources in file'
+      if (nsl /= nb_sources_in) then
+         write(0, *) '### Error in chm_mjrpts_get_emissions ###'
+         write(0, *) '# Number of points expected: ', nb_sources_in
+         write(0, *) '# but got ', nsl
+         write(0, *) '###                 ABORT             ###'
+         call chm_stop('chm_mjrpts_get_emissions', -1)
+      endif
+      allocate (pa(nb_sources_in))
+      allocate (pa_tr(nb_sources))
+   else
+      write(0, *) '### Error in chm_mjrpts_get_emissions ###'
+      write(0, *) '# Expecting number of point source > 0'
+      write(0, *) '# But got ', nsl
+      write(0, *) '###                 ABORT             ###'
+      call chm_stop('chm_mjrpts_get_emissions', -1)
+   endif
+   if (local_dbg) then
+      write(chm_lun_out, *) 'Hour number sought(chm_bmf_hh): ', chm_bmf_hh
+!      write(chm_lun_out, *) 'emjpt_ll = ', emjpt_ll
+   end if
+!
+!  Read and assign (in the linked list)each specie (record).
+!  NOTE: This action will overwrite al previous values stored
+!        in each of the the emitted major point source species stored
+!        in the linked list. Stack info. fields (time independent values)
+!        are not affected.
+!
+!    do i=1, emjpt_ll
+!       if (local_dbg) then
+!          write(chm_lun_out, *) 'reading mj. pt emission: ', mjptnmv_list(i)
+!       end if
+!       call chm_mjrpts_fstread(PA, fu_mjrpts_in, mjptnmv_list(i), -1, nb_sources_in)
+!       call chm_mjrpts_trim(pt_bnd_mask,pa,nb_sources_in,PA_TR,nb_sources)
+!       call chm_mjrpts_assign_fld(mjptnmv_list(i), pa_tr, nb_sources)
+!    enddo ! i=1, emjpt_ll
+!
+   do i = 1, nb_species
+      if (species_master(i) % nb_bins <= 1) then
+            if (local_dbg) then
+               write(chm_lun_out, *) "Looking at species ", species_master(i) % me_name
+            end if
+         if (species_master(i) % me_name /= UNASSIGNED) then
+            if (local_dbg) then
+               write(chm_lun_out, *) "Reading species ", species_master(i) % me_name
+            end if
+            call chm_mjrpts_fstread(PA, fu_mjrpts_in, species_master(i) % me_name, -1, nb_sources_in)
+            call chm_mjrpts_trim(pt_bnd_mask,pa,nb_sources_in,PA_TR,nb_sources)
+            call chm_mjrpts_assign_fld(species_master(i) % me_name, pa_tr, nb_sources)
+            nb_me_species = nb_me_species + 1
+         end if
+      else
+         do bin_nb = 1, species_master(i) % nb_bins
+            if (species_master(i) % bins_array(bin_nb) % me_name /= UNASSIGNED) then
+               if (local_dbg) then
+                  write(chm_lun_out, *) "Reading species ", species_master(i) % bins_array(bin_nb) % me_name, "(", bin_nb, ")"
+               end if
+               call chm_mjrpts_fstread(PA, fu_mjrpts_in, species_master(i) % bins_array(bin_nb) % me_name, -1, nb_sources_in)
+               call chm_mjrpts_trim(pt_bnd_mask,pa,nb_sources_in,PA_TR,nb_sources)
+               call chm_mjrpts_assign_fld(species_master(i) % bins_array(bin_nb) % me_name, pa_tr, nb_sources)
+               nb_me_species = nb_me_species + 1
+            end if
+         end do
+      end if
+   end do
+
+!  Close Major Pt. src FST file, deallocate temporary dynamic array
+!
+   call chm_fst_closefile(fu_mjrpts_in)
+   deallocate (pa)
+   if (local_dbg) then
+      write(chm_lun_out, *) 'nb_me_species = ', nb_me_species
+      write(chm_lun_out, *) 'Exit chm_mjrpts_get_emissions:'
+
+   end if
+   return
+end subroutine chm_mjrpts_get_emissions
+

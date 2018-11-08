@@ -1,0 +1,1082 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_main.ftn90
+! Creation       : S. Menard  ,  GEM-MACH, Feb 2007.
+! Description    : GEM-MACH chemistry processes are called from mach_main.ftn90. Each chemistry
+!                  process involved from mach_main.ftn90 need to have it's own key in
+!                  gem_settings.nml namelist.
+!
+! Extra info     :  Type of bus
+! -----------
+!                     ** dynamic bus
+!                            advected variables, change every time step, needed by Physics every
+!                            time step
+!                     ** permanant bus
+!                           variables on this bus keep constant values throughout model integration
+!                           steps unless you change those at
+!                           any model time step
+!                     ** volatile bus
+!                           variables stay throughout model time steps, but their values change
+!                           every time step e.g.
+!                     ** Entry bus
+!                          variables on this bus are very short lived e.g. only model step 0.
+!                          Hence these variables can be inputted/outputted at step 0.
+!
+! Arguments:
+!            IN
+!               F_chmbusent     -> Entry bus for chemistry
+!               f_chm_bent_siz  -> Dimension of F_chmbusent
+!               f_chm_bdyn_siz  -> Dimension of F_chmbusdyn
+!               f_chm_bper_siz  -> Dimension of F_chmbusper
+!               f_chm_bvol_siz  -> Dimension of F_chmbusvol
+!               f_chm_bdyn_top  -> # of field in the F_chmbusdyn
+!               f_chm_bper_top  -> # of field in the F_chmbusper
+!               f_chm_bvol_top  -> # of field in the F_chmbusvol
+!               f_chm_bent_top  -> # of field in the F_chmbusent
+!               f_busent        -> Entry bus for physics
+!               f_busper        -> Permanent bus for physics
+!               f_busvol        -> Volatile bus for physics
+!               f_bent_siz      -> Dimension of f_busent
+!               f_bdyn_siz      -> Dimension of f_busdyn
+!               f_bper_siz      -> Dimension of f_busper
+!               f_bvol_siz      -> Dimension of f_busvol
+!               f_j             -> Slice number
+!               f_step          -> Timestep number
+!               f_cpu           -> Cpu number executing slice "f_j"
+!               f_p_ni          -> Horizontal running length (physics)
+!               f_chm_ni        -> Horizontal running length (chemistry)
+!               nk              -> No. z-direct. vertical levels
+!               F_chmbusent     -> Entry bus for chemistry
+!               F_chmbusper     -> Permanent bus for chemistry
+!               F_chmbusdyn     -> Dynamic bus for chemistry
+!               F_chmbusvol     -> Volatile bus for chemistry
+!
+!           IN/OUT
+!               F_BUSDYN        -> Dynamic bus for physics
+!
+!================================================================================================
+
+subroutine mach_main (  f_chmbusent     , f_chmbusper      , f_chmbusdyn    , f_chmbusvol     , &
+                        F_chm_bent_siz  , F_chm_bdyn_siz   , F_chm_bper_siz , F_chm_bvol_siz  , &
+                        F_chm_bdyn_top  , F_chm_bper_top   , F_chm_bvol_top , F_chm_bent_top  , &
+                        F_busent        , F_BUSDYN         , F_busper       , F_busvol        , &
+                        F_bent_siz      , F_bdyn_siz       , F_bper_siz     , F_bvol_siz      , &
+                        F_j             , F_step           , F_cpu          , F_p_ni          , &
+                        F_chm_ni        , Nk               , F_busdyn_o     , istcond         , &
+                        iconvec)
+   use chm_utils_mod
+   use chm_consphychm_mod
+   use chm_nml_mod
+   use chm_species_info_mod
+   use chm_species_idx_mod
+   use chm_datime_mod
+   use chm_phyvar_mod
+   use mach_cam_headers_mod
+   use mach_headers_mod, only: mach_maketend, mach_updatdyn, mach_input_check, mach_calc_season, &
+                               mach_landuse, mach_plumerise, mach_biog_main, mach_diffusion, &
+                               mach_output, mach_perm_transfer
+   use mach_gas_headers_mod, only: mach_gas_drydep_main, mach_gas_main
+   use mach_pkg_debug_mod, only: dbg_chmbusvol
+   use mach_cam_utils_mod
+   use mach_gas_chemicbi_mod, only: lucprm
+
+   implicit none
+
+!  Arguments
+   integer,  intent(in)    :: f_cpu, f_j    , f_step        , f_p_ni        , f_chm_ni,  nk
+   integer,  intent(in)    :: f_bent_siz    , f_bdyn_siz    , f_bper_siz    , f_bvol_siz
+   integer,  intent(in)    :: f_chm_bent_siz, f_chm_bdyn_siz, f_chm_bper_siz, f_chm_bvol_siz
+   integer,  intent(in)    :: f_chm_bent_top, f_chm_bdyn_top, f_chm_bper_top, f_chm_bvol_top
+   integer,  intent(in)    :: istcond, iconvec
+   real,     intent(in), target :: f_chmbusent(f_chm_bent_siz)   , f_chmbusper(f_chm_bper_siz)
+   real,     intent(in), target :: f_chmbusdyn(f_chm_bdyn_siz)   , f_chmbusvol(f_chm_bvol_siz)
+   real,     intent(in)    :: f_busent(f_bent_siz)          , f_busper(f_bper_siz)
+   real,     intent(in)    :: f_busvol(f_bvol_siz)          , f_busdyn_o(f_bdyn_siz)
+   real,     intent(inout) :: f_busdyn(f_bdyn_siz)
+!
+!  Declare external functions
+!
+   real       :: jjulien
+   external   :: jjulien
+
+!  Declaration of local variables.
+
+   logical :: qi_exist
+   logical :: local_dbg
+   real    :: p2d   (f_p_ni, nk)                         !  surf. press.
+   real    :: uu    (f_p_ni, nk) , vv       (f_p_ni, nk) !  Horiz motion
+   real    :: tt    (f_p_ni, nk) , hu       (f_p_ni, nk) !  Temp // Hum.
+   real    :: qc    (f_p_ni, nk) , cw       (f_p_ni, nk)
+   real    :: gz_chm(f_p_ni, nk) , gz_k     (f_p_ni, nk)
+   real    :: hutend(f_p_ni, nk) , qctend   (f_p_ni, nk)
+   real    :: qr    (f_p_ni, nk) , qrtend   (f_p_ni, nk)
+   real    :: qi    (f_p_ni, nk) , gm_qiplus(f_p_ni, nk), qitend(f_p_ni, nk)
+   real    :: qg    (f_p_ni, nk) , gm_qgplus(f_p_ni, nk), qgtend(f_p_ni, nk)
+   real    :: qn    (f_p_ni, nk) , gm_qnplus(f_p_ni, nk), qntend(f_p_ni, nk)
+   real    :: qh    (f_p_ni, nk) , gm_qhplus(f_p_ni, nk), qhtend(f_p_ni, nk)
+   real    :: qnet  (f_p_ni, nk) , qnettend (f_p_ni, nk)
+   real    :: oldso4(f_p_ni, nk)
+   real    :: thick(f_p_ni,nk)
+   real    :: qrkfc_nil(f_p_ni,nk), kfcrf_nil(f_p_ni,nk),kfcsf_nil(f_p_ni,nk)
+   real    :: ncout_nil(f_p_ni,nk), thlevout(f_p_ni,nk)
+   real    :: trwtrow(f_p_ni,nk,isize), trwtrow1(f_p_ni*nk),trwtrow2(f_p_ni*nk)
+   real    :: sestepNO(f_p_ni), sestepNO2(f_p_ni),sestepSO2(f_p_ni)
+   real    :: sestepCO(f_p_ni), sestepNH3(f_p_ni),sebstepNO(f_p_ni)
+   real    :: sestepETHE(f_p_ni),sestepTOLU(f_p_ni),sestepHCHO(f_p_ni)
+   real    :: sestepISOPA(f_p_ni),sestepISOPB(f_p_ni),sestepMONO(f_p_ni)
+   real    :: sestepOVOC(f_p_ni), sestepPM2P5(f_p_ni), sestepPM10(f_p_ni)
+   real    :: aeronum(f_chm_ni, nk, isize)
+   real    :: ssemi(f_chm_ni,isize)
+
+!
+   real*8  :: date_incr
+   integer :: current_date
+   integer, parameter               :: nsp_diff_gas = 41
+   integer, dimension(nsp_diff_gas) :: diff_species_gas
+   integer, parameter               :: nsp_diff_pm  = 9
+   integer, dimension(nsp_diff_pm)  :: diff_species_pm
+   integer, parameter               :: nsp_depos = 28
+   integer, dimension(nsp_depos)    :: deposited_species
+   integer :: i, k, asize
+   real :: oldnumhrs, oldnumhrsint,aa
+   real :: volratpm2p5, volratpm10
+   real, dimension(f_chm_ni,nk) :: pm10,pm2p5
+   integer :: ii,kk,isz,ibin
+   
+
+!  Assign the species lists used in some chemical processes
+   diff_species_gas(1:nsp_diff_gas) = (/ sp_SO2,  sp_SO4,  sp_NO,   sp_NO2,  sp_O3,   sp_H2O2, &
+                                         sp_HNO3, sp_PAN,  sp_C3H8, sp_ALKA, sp_ETHE, sp_ALKE, &
+                                         sp_TOLU, sp_AROM, sp_HCHO, sp_ALD2, sp_MEK,  sp_MGLY, &
+                                         sp_DIAL, sp_ROOH, sp_CRES, sp_HONO, sp_RNO3, sp_ISOP, &
+                                         sp_HO2,  sp_RO2,  sp_MCO3, sp_CO,   sp_NH3,  sp_OSD,  &
+                                         sp_O   , sp_NO3,  sp_N2O5, sp_HNO4, sp_OH,   sp_RO2R, &
+                                         sp_R2O2, sp_RO2N, sp_BZO,  sp_CRG1, sp_CRG2 /)
+
+   diff_species_pm(1:nsp_diff_pm)   = (/ sp_OC, sp_PC, sp_SU, sp_CM, sp_EC, sp_SS, sp_WA, sp_NI, sp_AM /)
+
+!  Note: the order of the species for dry deposition is correlated to the order in
+!  tables alpha, beta, hstar and fzero in mach_gas_drydep_mod.ftn90. Do not change
+!  the order without making sure that those tables have been modified as well.
+   deposited_species(1:nsp_depos)   = (/ sp_SO2,  sp_SO4,  sp_NO,   sp_NO2,  sp_O3,   &
+                                         sp_H2O2, sp_HNO3, sp_PAN,  sp_C3H8, sp_ALKA, &
+                                         sp_ETHE, sp_ALKE, sp_TOLU, sp_AROM, sp_HCHO, &
+                                         sp_ALD2, sp_MEK,  sp_MGLY, sp_DIAL, sp_ROOH, &
+                                         sp_CRES, sp_HONO, sp_RNO3, sp_ISOP, sp_HO2,  &
+                                         sp_RO2,  sp_MCO3, sp_NH3 /)
+!
+   local_dbg = (.false. .or. global_debug)
+
+! Assigning dbg pointer to f_chmbusvol, both points at the same place
+   dbg_chmbusvol => f_chmbusvol
+
+   call tmg_start0 ( 65, 'mach_main')
+
+   if(local_dbg) then
+      write (chm_lun_out, *) 'in mach_main'
+      write (chm_lun_out, *) 'chm_timestep, f_j, f_step', chm_timestep, f_j, f_step
+      write (chm_lun_out, *) 'f_p_ni, f_chm_ni, nk '    , f_p_ni, f_chm_ni, nk
+   end if
+
+
+! Initialize local arrays (fields)
+   p2d       = 0.0
+   uu        = 0.0 ; vv        = 0.0
+   tt        = 0.0 ; hu        = 0.0
+   qc        = 0.0 ; cw        = 0.0
+   gz_chm    = 0.0 ; gz_k      = 0.0
+   hutend    = 0.0 ; qctend    = 0.0
+   qr        = 0.0 ; qrtend    = 0.0
+   qi        = 0.0 ; gm_qiplus = 0.0 ; qitend    = 0.0
+   qg        = 0.0 ; gm_qgplus = 0.0 ; qgtend    = 0.0
+   qn        = 0.0 ; gm_qnplus = 0.0 ; qntend    = 0.0
+   qh        = 0.0 ; gm_qhplus = 0.0 ; qhtend    = 0.0
+   qnet      = 0.0 ; qnettend  = 0.0
+!
+!  If the current timestep follows an exact hour, zero the 
+!  accumulators used for hourly output for satellite 
+!  comparison:
+!       oldnumhrs = chm_timestep * real(max(f_step-1,0)) / real(secondsin1hour)
+!   oldnumhrsint = real(int(oldnumhrsint))
+!
+      aa= (real(f_step-chm_step_factor)*chm_timestep)/real(chm_step_factor)
+      oldnumhrs = aa/real(secondsin1hour)
+      oldnumhrsint = real(int(oldnumhrs))
+
+!   if(f_step == oldnumhrs == oldnumhrsint) then
+      if(f_step == 0 .or. (oldnumhrs == oldnumhrsint .and. f_step > chm_step_factor)) then
+! Zero the wet deposition accumulator variables, if the previous step was an integer hour
+! (accumulation is hourly).
+     call mach_sat_zero(f_p_ni,f_busper(se_NO))
+     call mach_sat_zero(f_p_ni,f_busper(se_NO2))
+     call mach_sat_zero(f_p_ni,f_busper(se_SO2))
+     call mach_sat_zero(f_p_ni,f_busper(se_CO))
+     call mach_sat_zero(f_p_ni,f_busper(se_NH3))
+     call mach_sat_zero(f_p_ni,f_busper(se_bNO))
+     call mach_sat_zero(f_p_ni,f_busper(se_ETHE))
+     call mach_sat_zero(f_p_ni,f_busper(se_TOLU))
+     call mach_sat_zero(f_p_ni,f_busper(se_HCHO))
+     call mach_sat_zero(f_p_ni,f_busper(se_ISOPA))
+     call mach_sat_zero(f_p_ni,f_busper(se_ISOPB))
+     call mach_sat_zero(f_p_ni,f_busper(se_MONO))
+     call mach_sat_zero(f_p_ni,f_busper(se_OVOC))
+     call mach_sat_zero(f_p_ni,f_busper(se_PM2P5))
+     call mach_sat_zero(f_p_ni,f_busper(se_PM10))
+   end if
+
+!
+!  The following section of code should be removed once state variables from RPN physics
+!  are of the form:  Qt(t+dt)=Q(t+dt)+Q(full tendency). Essentially, busdyn_copy (created
+!  in itf_phy_step) overwrites values in busdyn(exiting from physics).
+!
+   f_busdyn = f_busdyn_o
+
+!================================================================================================
+!  (1) Extract the post-dynamics values and the physics
+!  tendencies for all hydrometeors
+!================================================================================================
+
+   call tmg_start0 ( 68, 'mach_maketend')
+
+   if(local_dbg) then
+      write (chm_lun_out, *) 'calling maketend'
+   end if
+   call mach_maketend(f_p_ni   , f_chm_ni  , nk      , QI_EXIST  , &
+                      HUTEND   , QCTEND    , QRTEND  ,             &
+                      QITEND   ,                                   &
+                      QGTEND   , QNTEND    ,                       &
+                      QHTEND   , QNET      , QNETTEND,             &
+                      f_busvol , f_bvol_siz, istcond)
+
+  call tmg_stop0 ( 68 )
+
+!================================================================================================
+!  (2) Update dynamics estimate of variable using
+!  tendencies, for appropriate variables
+!================================================================================================
+
+   call tmg_start0 ( 69, 'mach_updatdyn')
+
+   if(local_dbg) then
+      write (chm_lun_out, *) 'calling updatdyn with corrected list'
+   end if
+   if(istcond == 12) then
+   call mach_updatdyn(nk, f_chm_ni,                                &
+                      UU, f_busdyn(uplus), f_busvol(uphytd),       &
+                      VV, f_busdyn(vplus), f_busvol(vphytd),       &
+                      TT, f_busdyn(tplus), f_busvol(tphytd),       &
+                      f_busdyn(qbplus),                            &
+                      qnet, qnettend,                              &
+                      HU, f_busdyn(huplus), f_busvol(huphytd),     &
+                      QC, f_busvol(qbphytd),                       &
+                      CW, f_busper(fice), qi_exist,                & 
+                      QR,                                          &
+                      QI, gm_qiplus, qitend,                       &
+                      QG, gm_qgplus, qgtend,                       &
+                      QN, gm_qnplus, qntend,                       &
+                      QH, gm_qhplus, qhtend,                       &
+                      GZ_CHM, GZ_K,                                &
+                      f_busdyn(gzmoins6)  , f_busdyn(phis),        &
+                      f_busdyn(pplus)     , f_busdyn(sigm),        &
+                      F_CHMBUSVOL(sm(sp_RHO) % vol_offset), P2D, f_p_ni)
+  else
+   call mach_updatdyn(nk, f_chm_ni,                                &
+                      UU, f_busdyn(uplus), f_busvol(uphytd),       &
+                      VV, f_busdyn(vplus), f_busvol(vphytd),       &
+                      TT, f_busdyn(tplus), f_busvol(tphytd),       &
+                      f_busdyn(qcplus),                            &
+                      qnet, qnettend,                              &
+                      HU, f_busdyn(huplus), f_busvol(huphytd),     &
+                      QC, f_busvol(qcphytd),                       &
+                      CW, f_busper(fice), qi_exist,                &
+                      QR,                                          &
+                      QI, gm_qiplus, qitend,                       &
+                      QG, gm_qgplus, qgtend,                       &
+                      QN, gm_qnplus, qntend,                       &
+                      QH, gm_qhplus, qhtend,                       &
+                      GZ_CHM, GZ_K,                                &
+                      f_busdyn(gzmoins6)  , f_busdyn(phis),        &
+                      f_busdyn(pplus)     , f_busdyn(sigm),        &
+                      F_CHMBUSVOL(sm(sp_RHO) % vol_offset), P2D, f_p_ni)
+  end if
+  call tmg_stop0 ( 69 )
+
+!================================================================================================
+! Start of meteorological/chemical input check
+!================================================================================================
+
+   call tmg_start0 ( 70, 'mach_input_check')
+
+   if (local_dbg) then
+      write (chm_lun_out, *) 'meteorological/chemical input check'
+   end if
+
+   call tmg_stop0 ( 70 )
+
+!================================================================================================
+! Start of landuse and season calculations
+!================================================================================================
+
+   call tmg_start0 ( 71, 'mach_landuse/season')
+
+   ! Calculate the julian calendar day (1-365)
+   date_incr = chm_timestep * F_step / secondsin1hour
+   call incdatr(current_date, chm_dttim(14), date_incr)
+   rjul_day = jjulien(0, 0, current_date)
+   ijul_day = nint(rjul_day)
+   call mach_calc_season(F_CHMBUSPER(sm(sp_SESN) % per_offset :                       &
+                         sm(sp_SESN) % per_offset + (sm(sp_SESN) % per_size - 1) ),   &
+                         f_busper(dlat), f_chm_ni, ijul_day    )
+
+   if (f_step <= 1) then
+      call mach_landuse (f_busper(vegf), F_CHMBUSPER(sm(sp_LU15) % per_offset :       &
+                         sm(sp_LU15) % per_offset + (sm(sp_LU15) % per_size - 1) ),   &
+                         f_chm_ni)
+   end if
+!
+   call mach_input_check (F_CHMBUSVOL(sm(sp_KTN) % VOL_OFFSET), f_busvol(kt),     &
+                          f_busdyn(gzmoins6), f_busper(h), F_busvol(phit0)  ,     &
+                          F_busvol(ue), F_CHMBUSPER(SM(sp_LU15) % per_offset),    &
+                          lucprm, f_chm_ni, nk)
+
+   call tmg_stop0 ( 71 )
+
+!================================================================================================
+! Start of dry deposition for gases
+!================================================================================================
+
+   call tmg_start0 ( 72, 'mach_gas_drydep_main')
+
+   select case (chm_gas_drydep_s)
+
+      case ('ROBICHAUD')
+         if(local_dbg) then
+            write (chm_lun_out, *) 'Compute the dry deposition for gas: ', chm_gas_drydep_s
+         end if
+
+         call mach_gas_drydep_main(f_chmbusper, f_chmbusvol, f_busper, F_BUSVOL, hu(1, nk), f_bper_siz,  &
+                                   f_bvol_siz, p2d(1, nk), f_chm_ni, deposited_species, nsp_depos)
+      case default
+         if(local_dbg) then
+            write (chm_lun_out, *) '> Warning '
+            write (chm_lun_out, *) '> No dry deposition for gas: ', chm_gas_drydep_s
+         end if
+   end select
+
+   call tmg_stop0 ( 72 )
+!  for diagnostics:
+   do k = 2,nk
+    do i = 1,f_p_ni
+      thick(i,k) = gz_k(i,k-1) - gz_k(i,k)
+    end do
+   end do
+   do i = 1,f_p_ni
+      thick(i,1) = gz_chm(i,1)-gz_k(i,1)
+   end do
+!
+!  Zero the emissions column accumulators in the current time step
+   sestepNO  = 0.0
+   sestepNO2 = 0.0
+   sestepSO2 = 0.0
+   sestepCO  = 0.0
+   sestepNH3 = 0.0
+   sebstepNO = 0.0 
+   sestepETHE = 0.0
+   sestepTOLU = 0.0
+   sestepHCHO = 0.0
+   sestepISOPA = 0.0
+   sestepISOPB = 0.0
+   sestepMONO = 0.0
+   sestepOVOC = 0.0
+   sestepPM2P5 = 0.0
+   sestepPM10 = 0.0
+
+!================================================================================================
+! Start of major points sources emissions injection
+!================================================================================================
+
+   call tmg_start0 ( 81, 'mach_plumerise')
+
+   select case (chm_mj_treatment_s)
+      case ('PLUMERISE')
+         if (chm_do_mjpts_l) then
+            if(local_dbg) then
+               write (chm_lun_out, *) 'Compute the major points plumerise ', chm_mj_treatment_s
+            end if
+!
+!  Fill total PM2.5 and total PM10 mass arrays:
+         volratpm2p5 = (1.25**3 - 0.64**3) / (1.28**3 - 0.64**3)
+         volratpm10 = (5.0**3 - 2.56**3) / (5.12**3 - 2.56**3)
+         pm2p5 = 0.
+         pm10  = 0.
+         do isz =1,7
+          do kk =1,nk
+           do ii =1,f_chm_ni
+             pm2p5(ii,kk) = pm2p5(ii,kk) &
+             + f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k)) 
+           end do
+          end do
+         end do
+         isz = 8
+         do kk =1,nk
+           do ii =1,f_chm_ni
+             pm2p5(ii,kk) = pm2p5(ii,kk) &
+             + ( f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k)) ) * volratpm2p5
+           end do
+         end do
+         do isz =1,9
+          do kk =1,nk
+           do ii =1,f_chm_ni
+             pm10(ii,kk) = pm10(ii,kk) &
+             + f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k))
+           end do
+          end do
+         end do
+         isz = 10
+         do kk =1,nk
+           do ii =1,f_chm_ni
+             pm10(ii,kk) = pm10(ii,kk) &
+             + ( f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k)) ) * volratpm10
+           end do
+         end do
+
+
+!  For species which will be compared to satellite output, store the column mass before:
+             call mach_emit_col(f_chm_ni,nk, thick, chm_timestep, &
+                                f_busdyn(dxdy), &
+                                sestepNO,sestepNO2,sestepSO2, &
+                                sestepCO,sestepNH3, &
+                                sestepETHE, sestepTOLU, sestepHCHO, sestepISOPA,&
+                                sestepPM2P5, sestepPM10, &
+                                f_chmbusdyn(sm(sp_NO)  % dyn_offset), &
+                                f_chmbusdyn(sm(sp_NO2) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_SO2) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_CO)  % dyn_offset), &
+                                f_chmbusdyn(sm(sp_NH3) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_ETHE) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_TOLU) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_HCHO) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_ISOP) % dyn_offset), &
+                                pm2p5, & 
+                                pm10, &
+                                f_chmbusvol(sm(sp_RHO) % vol_offset), &
+                                sm(sp_NO) % mol_wt, &
+                                sm(sp_NO2) % mol_wt, &
+                                sm(sp_SO2) % mol_wt, &
+                                sm(sp_CO) % mol_wt, &
+                                sm(sp_NH3) % mol_wt, &
+                                sm(sp_ETHE) % mol_wt, &
+                                sm(sp_TOLU) % mol_wt, &
+                                sm(sp_HCHO) % mol_wt, &
+                                sm(sp_ISOP) % mol_wt, &
+                                1)
+!  Calculate plumerise:
+            call mach_plumerise (f_chm_ni, nk, f_busdyn(dxdy), chm_timestep, gz_chm, F_CHMBUSVOL(sm(sp_RHO)% vol_offset), &
+                                 tt, uu, vv, f_busper(h), f_busvol(mol), f_busvol(ue), F_CHMBUSDYN, F_j, f_chm_bdyn_siz)
+!
+!  Calculate PM2.5 and PM10 totals again:
+!
+         pm2p5 = 0.
+         pm10  = 0.
+         do isz =1,7
+          do kk =1,nk
+           do ii =1,f_chm_ni
+             pm2p5(ii,kk) = pm2p5(ii,kk) &
+             + f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k))
+           end do
+          end do
+         end do
+         isz = 8
+         do kk =1,nk
+           do ii =1,f_chm_ni
+             pm2p5(ii,kk) = pm2p5(ii,kk) &
+             + ( f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k)) ) * volratpm2p5
+           end do
+         end do
+         do isz =1,9
+          do kk =1,nk
+           do ii =1,f_chm_ni
+             pm10(ii,kk) = pm10(ii,kk) &
+             + f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k))
+           end do
+          end do
+         end do
+         isz = 10
+         do kk =1,nk
+           do ii =1,f_chm_ni
+             pm10(ii,kk) = pm10(ii,kk) &
+             + ( f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k)) ) * volratpm10
+           end do
+         end do
+! Calculate change in column mass due to emissions of satellite species:
+!
+             call mach_emit_col(f_chm_ni,nk, thick, chm_timestep, &
+                                f_busdyn(dxdy), &
+                                sestepNO,sestepNO2,sestepSO2, &
+                                sestepCO,sestepNH3, &
+                                sestepETHE, sestepTOLU, sestepHCHO, sestepISOPA, &
+                                sestepPM2P5, sestepPM10, &
+                                f_chmbusdyn(sm(sp_NO)  % dyn_offset), &
+                                f_chmbusdyn(sm(sp_NO2) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_SO2) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_CO)  % dyn_offset), &
+                                f_chmbusdyn(sm(sp_NH3) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_ETHE) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_TOLU) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_HCHO) % dyn_offset), &
+                                f_chmbusdyn(sm(sp_ISOP) % dyn_offset), &
+                                pm2p5, &
+                                pm10, &
+                                f_chmbusvol(sm(sp_RHO) % vol_offset), &
+                                sm(sp_NO) % mol_wt, &
+                                sm(sp_NO2) % mol_wt, &
+                                sm(sp_SO2) % mol_wt, &
+                                sm(sp_CO) % mol_wt, &
+                                sm(sp_NH3) % mol_wt, &
+                                sm(sp_ETHE) % mol_wt, &
+                                sm(sp_TOLU) % mol_wt, &
+                                sm(sp_HCHO) % mol_wt, &
+                                sm(sp_ISOP) % mol_wt, &
+                                2)
+!
+         endif
+      case default
+         if(local_dbg) then
+            write (chm_lun_out, *) '> Warning '
+            write (chm_lun_out, *) '> No major point source treatment: ', chm_mj_treatment_s
+         end if
+   end select
+
+   call tmg_stop0 ( 81 )
+!
+! Add anthropogenic surface emissions into the column accumulator for the current time step:
+!
+          do i = 1,f_chm_ni
+            sestepNO(i) = sestepNO(i) + f_chmbusper(sm(sp_NO)   % ae_offset + i - 1) &
+              *chm_timestep / sm(sp_NO) % mol_wt &
+              *avno / f_busdyn(dxdy)
+            sestepNO2(i) = sestepNO2(i) + f_chmbusper(sm(sp_NO2)   % ae_offset + i - 1) &
+              *chm_timestep / sm(sp_NO2) % mol_wt &
+              *avno / f_busdyn(dxdy)
+            sestepSO2(i) = sestepSO2(i) + f_chmbusper(sm(sp_SO2)   % ae_offset + i - 1) &
+              *chm_timestep / sm(sp_SO2) % mol_wt &
+              *avno / f_busdyn(dxdy)
+            sestepCO(i) = sestepCO(i) + f_chmbusper(sm(sp_CO)   % ae_offset + i - 1) &
+              *chm_timestep / sm(sp_CO) % mol_wt &
+              *avno / f_busdyn(dxdy)
+            sestepNH3(i) = sestepNH3(i) + f_chmbusper(sm(sp_NH3)   % ae_offset + i - 1) &
+              *chm_timestep / sm(sp_NH3) % mol_wt &
+              *avno / f_busdyn(dxdy)
+            sestepETHE(i) = sestepETHE(i) + f_chmbusper(sm(sp_ETHE)   % ae_offset + i - 1) &
+              *chm_timestep / sm(sp_ETHE) % mol_wt &
+              *avno / f_busdyn(dxdy)
+            sestepTOLU(i) = sestepTOLU(i) + f_chmbusper(sm(sp_TOLU)   % ae_offset + i - 1) &
+              *chm_timestep / sm(sp_TOLU) % mol_wt &
+              *avno / f_busdyn(dxdy)
+            sestepHCHO(i) = sestepHCHO(i) + f_chmbusper(sm(sp_HCHO)   % ae_offset + i - 1) &
+              *chm_timestep / sm(sp_HCHO) % mol_wt &
+              *avno / f_busdyn(dxdy)
+! Isoprene:  add biogenics, so that ISOPA is the sum of all isoprene emissions
+            sestepISOPA(i) = sestepISOPA(i) + f_chmbusper(sm(sp_ISOP)   % ae_offset + i - 1) &
+              *chm_timestep / sm(sp_ISOP) % mol_wt &
+              *avno / f_busdyn(dxdy) + sestepISOPB(i)
+          end do
+! Ditto, particles:
+          do ibin = 1,7
+           do i=1,f_chm_ni
+              sestepPM2P5(i) = sestepPM2P5(i) + f_chmbusper(sm(sp_PC) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  ! ug/m2
+              sestepPM2P5(i) = sestepPM2P5(i) + f_chmbusper(sm(sp_SU) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  ! ug/m2
+              sestepPM2P5(i) = sestepPM2P5(i) + f_chmbusper(sm(sp_CM) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  ! ug/m2
+              sestepPM2P5(i) = sestepPM2P5(i) + f_chmbusper(sm(sp_EC) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  ! ug/m2
+           end do
+          end do
+          ibin = 8
+          do i=1,f_chm_ni
+              sestepPM2P5(i) = sestepPM2P5(i) + f_chmbusper(sm(sp_PC) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6 * volratpm2p5  ! ug/m2
+              sestepPM2P5(i) = sestepPM2P5(i) + f_chmbusper(sm(sp_SU) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  * volratpm2p5 ! ug/m2
+              sestepPM2P5(i) = sestepPM2P5(i) + f_chmbusper(sm(sp_CM) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  * volratpm2p5 ! ug/m2
+              sestepPM2P5(i) = sestepPM2P5(i) + f_chmbusper(sm(sp_EC) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  * volratpm2p5 ! ug/m2
+          end do
+          do ibin = 1,9
+           do i=1,f_chm_ni
+              sestepPM10(i) = sestepPM10(i) + f_chmbusper(sm(sp_PC) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  ! ug/m2
+              sestepPM10(i) = sestepPM10(i) + f_chmbusper(sm(sp_SU) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  ! ug/m2
+              sestepPM10(i) = sestepPM10(i) + f_chmbusper(sm(sp_CM) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  ! ug/m2
+              sestepPM10(i) = sestepPM10(i) + f_chmbusper(sm(sp_EC) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  ! ug/m2
+           end do
+          end do
+          ibin = 10
+          do i=1,f_chm_ni
+              sestepPM10(i) = sestepPM10(i) + f_chmbusper(sm(sp_PC) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6 * volratpm10   ! ug/m2
+              sestepPM10(i) = sestepPM10(i) + f_chmbusper(sm(sp_SU) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  * volratpm10  ! ug/m2
+              sestepPM10(i) = sestepPM10(i) + f_chmbusper(sm(sp_CM) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  * volratpm10  ! ug/m2
+              sestepPM10(i) = sestepPM10(i) + f_chmbusper(sm(sp_EC) % bins_array(ibin) % ae_offset + i - 1) &
+              * chm_timestep / f_busdyn(dxdy) * 1E6  * volratpm10  ! ug/m2
+          end do
+
+ 
+
+!================================================================================================
+! Start of the biogenic emissions scheme
+!================================================================================================
+
+   call tmg_start0 ( 77, 'mach_biog_main')
+
+   select case (chm_biog_s)
+      case ('BEIS3.09')
+         if(local_dbg) then
+            write (chm_lun_out, *) 'Compute the biogenic emissions: ', chm_biog_s
+         end if
+         call mach_biog_main(f_chmbusper,                               &
+                             F_chm_ni,                                  &
+                             F_busdyn((F_chm_ni) * (nk - 1) + tplus),   &
+                             F_busper(flusolis),                        &
+                             F_BUSVOL(CANG),                            &
+                             F_busdyn(pplus),                           &
+                             sebstepNO,                                 &
+                             sestepOVOC,                                &
+                             sestepISOPB,                               &
+                             sestepMONO    )
+!
+! Convert biogenic emissions from units of g/s to units of molecules/m2:
+! Note that the molecular mass of OVOC here is assumed to be 148,
+! of monoterpenes 136, for consistency with BEIS 
+
+         do i = 1,f_chm_ni
+            sebstepNO(i) = sebstepNO(i) &
+              * chm_timestep / sm(sp_NO) % mol_wt &
+              * avno / f_busdyn(dxdy)
+            sestepOVOC(i) = sestepOVOC(i) &
+              * chm_timestep / 148.0 &
+              * avno / f_busdyn(dxdy)
+            sestepISOPB(i) = sestepISOPB(i) &
+              * chm_timestep / sm(sp_ISOP) % mol_wt &
+              * avno / f_busdyn(dxdy)
+            sestepMONO(i) = sestepMONO(i) &
+              * chm_timestep / 136. &
+              * avno / f_busdyn(dxdy)
+         end do
+
+      case default
+         if(local_dbg) then
+            write (chm_lun_out, *) '> Warning '
+            write (chm_lun_out, *) '> No biogenic emissions: ', chm_biog_s
+         end if
+   end select
+
+   call tmg_stop0 ( 77 )
+!
+!================================================================================================
+! Add net during timestep column emitted mass into the permanent bus accumulation arrays
+!================================================================================================
+!
+   call mach_transfer_col(f_chm_ni, &
+                          f_busper(se_NO),   f_busper(se_NO2),  &
+                          f_busper(se_SO2),  f_busper(se_CO) ,  &
+                          f_busper(se_NH3),  f_busper(se_bNO),  &
+                          f_busper(se_ETHE), f_busper(se_TOLU), &
+                          f_busper(se_HCHO), f_busper(se_ISOPA),&
+                          f_busper(se_ISOPB),f_busper(se_MONO), &
+                          f_busper(se_OVOC), f_busper(se_PM2P5), &
+                          f_busper(se_PM10), &
+                          sestepNO,          sestepNO2,         &
+                          sestepSO2,         sestepCO,          &
+                          sestepNH3,         sebstepNO,         &
+                          sestepETHE,        sestepTOLU,        &
+                          sestepHCHO,        sestepISOPA,       &
+                          sestepISOPB,       sestepMONO,        &
+                          sestepOVOC,        sestepPM2P5,       &
+                          sestepPM10 )
+!
+!================================================================================================
+! Sea-salt emissions if to be treated by diffusion
+!================================================================================================
+!
+   if ((chm_pkg_pm_s  == 'CAM2BINS'       .or. chm_pkg_pm_s      == 'CAM12BINS') .and.  &
+        chm_seaflux_s == 'GONG_MONAHAN_F' ) then
+      call mach_cam_flux (F_CHMBUSPER, tt, f_chm_ni, nk, &
+           f_chmbusper(sm(sp_LU15) % per_offset : sm(sp_LU15) % per_offset + (sm(sp_LU15) % per_size - 1)), &
+           f_busper(glsea), f_busdyn(dxdy),  f_busper(udiag), f_busper(vdiag) )
+
+   endif
+!
+!================================================================================================
+!  Start of the vertical diffusion
+!================================================================================================
+
+   call tmg_start0 ( 78, 'mach_diffusion')
+
+   if ((chm_vert_diff_s == 'FLUX') .or. &
+       (chm_vert_diff_s == 'BOUNDARY')) then
+      if(local_dbg) then
+         write (chm_lun_out, *) 'calling diffusion ', chm_vert_diff_s
+      end if
+
+! Calling diffusion for gas species
+      call mach_diffusion(F_CHMBUSDYN, f_chmbusper, f_chmbusvol,                          &
+                          f_chmbusvol(sm(sp_KTN) % vol_offset),                             &
+                          f_chmbusvol(sm(sp_RHO) % vol_offset), f_busdyn(dxdy), gz_chm,     &
+                          gz_k, chm_timestep, f_chm_ni, nk, diff_species_gas, nsp_diff_gas      )
+
+! If necessary, calling diffusion for PM species
+      if (chm_pkg_pm_s == 'CAM2BINS' .or. chm_pkg_pm_s == 'CAM12BINS') then
+             call mach_diffusion(F_CHMBUSDYN, f_chmbusper, f_chmbusvol,                          &
+                             f_chmbusvol(sm(sp_KTN) % vol_offset),                           &
+                             f_chmbusvol(sm(sp_RHO) % vol_offset), f_busdyn(dxdy), gz_chm,   &
+                             gz_k, chm_timestep, f_chm_ni, nk, diff_species_pm, nsp_diff_pm        )
+     
+      end if
+
+   end if
+
+   call tmg_stop0 ( 78 )
+
+!================================================================================================
+! Start of Gas Phase Chemistry (only between level (nk_start and level nk)
+!================================================================================================
+
+   call tmg_start0 ( 73, 'mach_gas_main')
+
+   select case (chm_pkg_gas_s)
+      case ('ADOM2')
+         if(local_dbg) then
+            write (chm_lun_out, *) 'Compute the gas phase chemistry: ', chm_pkg_gas_s
+         end if
+           call mach_gas_main(F_CHMBUSDYN, f_chmbusvol, f_busper(ftot), oldso4, gz_chm, gz_k, qc,&
+                            p2d        , tt         , hu            ,                          &
+                            f_chmbusvol(sm(sp_RHO) % vol_offset)    ,                          &
+                            f_busvol(cang)          , f_chmbusvol(sm(sp_VOCC) % out_offset),   &
+                            f_chmbusvol(sm(sp_VOCR) % out_offset),                             &
+                            f_chmbusvol(sm(sp_BRCH) % out_offset),                             &
+                            f_chm_ni      , nk            , f_step)
+
+
+      case default
+         if(local_dbg) then
+            write (chm_lun_out, *) '> Warning '
+            write (chm_lun_out, *) '> No gas phase chemistry: ', chm_pkg_gas_s
+         end if
+   end select
+
+   call tmg_stop0 ( 73 )
+
+!================================================================================================
+! Start of Aerosol Processes
+!================================================================================================
+
+   call tmg_start0 ( 74, 'mach_pm_chem')
+
+   select case (chm_pkg_pm_s)
+       case ('CAM12BINS', 'CAM2BINS')
+          if(local_dbg) then
+             write (chm_lun_out, *) 'Compute processes for 12 bin aerosol scheme: ', chm_pkg_pm_s
+          end if
+!  North American Domain options: CONSUN stratiform cloud (istcond =4 )and Kain-Fritsch convection
+!  (iconvec = 6)
+          if(istcond == 4 .and. iconvec == 6) then
+          ncout_nil = 0.0
+          call mach_pm_chem(F_CHMBUSDYN, f_chmbusvol, f_busper(ftot), gz_chm        , gz_k          , qc            , &
+                              p2d            , tt            , hu             , f_chmbusvol(sm(sp_RHO) % vol_offset), &
+                              f_busvol(cang) , f_chm_ni      , nk , lucprm    , f_step          , f_j             , f_cpu, &
+                              f_busper(fdc)  , f_busper(fxp) , f_busdyn(pplus), f_busvol(rnflx) , f_busvol(snoflx),        &
+                              f_busper(qrkfc) , f_busper(kfcrf) , f_busper(kfcsf) , &
+                              f_busvol(f12)  , f_busvol(fevp), f_busdyn(sigm) , f_busdyn(omegap),                          &
+                              f_chmbusper(sm(sp_LU15) % per_offset : sm(sp_LU15) % per_offset + (sm(sp_LU15) % per_size - 1)),&
+                              f_busvol(kcl)  , f_busper(glsea), f_busper(udiag), f_busper(vdiag)  ,                           &
+                              f_chmbusper(sm(sp_SESN) % per_offset : sm(sp_SESN) % per_offset + (sm(sp_SESN) % per_size - 1)),&
+                              f_chmbusvol(sm(sp_LU15) % ra_offset : sm(sp_LU15) % ra_offset + (sm(sp_LU15) % ra_size - 1) ),  &
+                              f_busvol(ue)   , oldso4        , uu             , vv, &
+                              f_busper(wd_hso3), f_busper(wd_hpxa), f_busper(wd_rpxa), f_busper(wd_so4), &
+                              f_busper(wd_no3), f_busper(wd_nh4), f_busper(wd_cat), f_busper(wd_hco3), &
+                              f_busper(wd_h), f_busper(wd_sslt), f_busper(wd_ocbn), f_busper(wd_h2o),  &
+                              f_busper(wd_dust), f_busper(wd_blc), f_busper(wd_pcbn), f_busper(dd_pso4), &
+                              f_busper(dd_poc), f_busper(dd_pno3), f_busper(dd_pnh4), f_busper(dd_pcm),    &
+                              f_busper(dd_pec), f_busper(dd_ppc), f_busper(dd_pss), f_busper(dd_so2), f_busper(dd_h2so4),   &
+                              f_busper(dd_no), f_busper(dd_no2), f_busper(dd_o3), f_busper(dd_hno3),        &
+                              f_busper(dd_pan), f_busper(dd_hono), f_busper(dd_rno3), f_busper(dd_nh3), &  
+                              f_busper(dd_noy) , f_busper(dd_h2o2), f_busper(dd_hcho),  nsp_depos, &
+                              deposited_species,ncout_nil,trwtrow,thlevout,aeronum)
+
+          else
+!  Oil Sands 10km options: MY double-moment microphysics (istcond = 12) and Kain-Fritsch convection (iconvec = 6)
+             if (istcond == 12 .and. iconvec == 6) then
+          call mach_pm_chem(F_CHMBUSDYN, f_chmbusvol, f_busper(ftot), gz_chm , gz_k  , qc  , &
+                              p2d            , tt            , hu             , f_chmbusvol(sm(sp_RHO) % vol_offset), &
+                              f_busvol(cang) , f_chm_ni      , nk , lucprm    , f_step          , f_j             , f_cpu, &
+                              f_busper(fdc), f_busper(fxp), f_busdyn(pplus), f_busvol(prflxky), f_busvol(swflxky), &
+                              f_busper(qrkfc) , f_busper(kfcrf) , f_busper(kfcsf) , &
+                              f_busvol(f12ky), f_busvol(fevpky), f_busdyn(sigm) , f_busdyn(omegap),                          &
+                              f_chmbusper(sm(sp_LU15) % per_offset : sm(sp_LU15) % per_offset + (sm(sp_LU15) % per_size - 1)),&
+                              f_busvol(kcl)  , f_busper(glsea), f_busper(udiag), f_busper(vdiag)  ,                           &
+                              f_chmbusper(sm(sp_SESN) % per_offset : sm(sp_SESN) % per_offset + (sm(sp_SESN) % per_size - 1)),&
+                              f_chmbusvol(sm(sp_LU15) % ra_offset : sm(sp_LU15) % ra_offset + (sm(sp_LU15) % ra_size - 1) ),  &
+                              f_busvol(ue)   , oldso4        , uu             , vv, &
+                              f_busper(wd_hso3), f_busper(wd_hpxa), f_busper(wd_rpxa), f_busper(wd_so4), &
+                              f_busper(wd_no3), f_busper(wd_nh4), f_busper(wd_cat), f_busper(wd_hco3), &
+                              f_busper(wd_h), f_busper(wd_sslt), f_busper(wd_ocbn), f_busper(wd_h2o),  &
+                              f_busper(wd_dust), f_busper(wd_blc), f_busper(wd_pcbn), f_busper(dd_pso4), &
+                              f_busper(dd_poc), f_busper(dd_pno3), f_busper(dd_pnh4), f_busper(dd_pcm),    &
+                              f_busper(dd_pec), f_busper(dd_ppc), f_busper(dd_pss), f_busper(dd_so2), f_busper(dd_h2so4),   &
+                              f_busper(dd_no), f_busper(dd_no2), f_busper(dd_o3), f_busper(dd_hno3),        &
+                              f_busper(dd_pan), f_busper(dd_hono), f_busper(dd_rno3), f_busper(dd_nh3), &  
+                              f_busper(dd_noy) , f_busper(dd_h2o2), f_busper(dd_hcho),  nsp_depos, &
+                              deposited_species,f_busvol(ncout),trwtrow,thlevout,aeronum)
+
+
+             else
+!  Oil Sands 2.5km options:  Milbrandt-Yao cloud microphysics (istcond = 12) and NO convective parameterization (iconvec = 0)
+                if (istcond == 12 .and. iconvec == 0) then
+
+!  Milbrand-Yau double moment and NIL chosen
+          qrkfc_nil = 0.0
+          kfcrf_nil = 0.0
+          kfcsf_nil = 0.0
+          call mach_pm_chem(F_CHMBUSDYN, f_chmbusvol, f_busper(ftot), gz_chm , gz_k  , qc  , &
+                              p2d            , tt            , hu             , f_chmbusvol(sm(sp_RHO) % vol_offset), &
+                              f_busvol(cang) , f_chm_ni      , nk , lucprm    , f_step          , f_j             , f_cpu, &
+                              f_busper(fdc), f_busper(fxp), f_busdyn(pplus), f_busvol(prflxky), f_busvol(swflxky), &
+                              qrkfc_nil , kfcrf_nil , kfcsf_nil , &
+                              f_busvol(f12ky), f_busvol(fevpky), f_busdyn(sigm) , f_busdyn(omegap),                          &
+                              f_chmbusper(sm(sp_LU15) % per_offset : sm(sp_LU15) % per_offset + (sm(sp_LU15) % per_size - 1)),&
+                              f_busvol(kcl)  , f_busper(glsea), f_busper(udiag), f_busper(vdiag)  ,                           &
+                              f_chmbusper(sm(sp_SESN) % per_offset : sm(sp_SESN) % per_offset + (sm(sp_SESN) % per_size - 1)),&
+                              f_chmbusvol(sm(sp_LU15) % ra_offset : sm(sp_LU15) % ra_offset + (sm(sp_LU15) % ra_size - 1) ),  &
+                              f_busvol(ue)   , oldso4        , uu             , vv, &
+                              f_busper(wd_hso3), f_busper(wd_hpxa), f_busper(wd_rpxa), f_busper(wd_so4), &
+                              f_busper(wd_no3), f_busper(wd_nh4), f_busper(wd_cat), f_busper(wd_hco3), &
+                              f_busper(wd_h), f_busper(wd_sslt), f_busper(wd_ocbn), f_busper(wd_h2o),  &
+                              f_busper(wd_dust), f_busper(wd_blc), f_busper(wd_pcbn), f_busper(dd_pso4), &
+                              f_busper(dd_poc), f_busper(dd_pno3), f_busper(dd_pnh4), f_busper(dd_pcm),    &
+                              f_busper(dd_pec), f_busper(dd_ppc), f_busper(dd_pss), f_busper(dd_so2), f_busper(dd_h2so4),   &
+                              f_busper(dd_no), f_busper(dd_no2), f_busper(dd_o3), f_busper(dd_hno3),        &
+                              f_busper(dd_pan), f_busper(dd_hono), f_busper(dd_rno3), f_busper(dd_nh3), &  
+                              f_busper(dd_noy) ,  f_busper(dd_h2o2), f_busper(dd_hcho),  nsp_depos, &
+                              deposited_species,f_busvol(ncout),trwtrow,thlevout,aeronum)
+                else
+                  write(6,*) 'Invalid choice of iconvec and istcond in mach_main'
+                  write(6,*) 'iconvec = ',iconvec,' istcond = ', istcond
+                  stop
+                end if
+             end if
+          end if
+
+
+       case default
+          if(local_dbg) then
+             write (chm_lun_out, *) '> Warning '
+             write (chm_lun_out, *) '> No aerosol process: ', chm_pkg_pm_s
+          end if
+    end select
+
+    call tmg_stop0 ( 74 )
+
+!================================================================================================
+!  Units conversion for a subset of PM and gases species before outputting them.
+!  See chemistry model output files: km*
+!  Note: Units conversion done only if gas chemistry is "ADOM2" and PM chemistry package is "CAM2BINS"
+!================================================================================================
+
+   call tmg_start0 ( 80, 'mach_output')
+
+   if ((chm_pkg_gas_s == 'ADOM2' )) then
+      call mach_output (F_CHMBUSVOL, f_chmbusdyn, f_chm_ni, nk)
+   end if
+   if ((chm_pkg_pm_s == 'CAM12BINS')) then
+      call mach_bin_number(F_CHMBUSVOL(sm(sp_NCRS) % out_offset), &
+                           F_CHMBUSVOL(sm(sp_NFIN) % out_offset), &
+                           f_chmbusvol(sm(sp_RHO) % vol_offset), &
+                           aeronum,f_chm_ni,nk,isize)
+   end if
+
+   call tmg_stop0 ( 80 )
+         pm2p5 = 0.
+         pm10  = 0.
+         do isz =1,7
+          do kk =1,nk
+           do ii =1,f_chm_ni
+             pm2p5(ii,kk) = pm2p5(ii,kk) &
+             + f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k))
+           end do
+          end do
+         end do
+         isz = 8
+         do kk =1,nk
+           do ii =1,f_chm_ni
+             pm2p5(ii,kk) = pm2p5(ii,kk) &
+             + ( f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k)) ) * volratpm2p5
+           end do
+         end do
+         do isz =1,9
+          do kk =1,nk
+           do ii =1,f_chm_ni
+             pm10(ii,kk) = pm10(ii,kk) &
+             + f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k))
+           end do
+          end do
+         end do
+         isz = 10
+         do kk =1,nk
+           do ii =1,f_chm_ni
+             pm10(ii,kk) = pm10(ii,kk) &
+             + ( f_chmbusdyn(sm(sp_SU) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_SS) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_OC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_NI) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_AM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_CM) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_EC) % bins_array(isz) % dyn_offset + ik(i, k)) &
+             + f_chmbusdyn(sm(sp_PC) % bins_array(isz) % dyn_offset + ik(i, k)) ) * volratpm10
+           end do
+         end do
+!================================================================================================
+! Calculate column molecules/m2 on the current step for output to the volatile bus:
+!================================================================================================
+!
+             call mach_emit_col(f_chm_ni,nk, thick, chm_timestep,  &
+             f_busdyn(dxdy), &
+             f_busvol(col_NO),f_busvol(col_NO2),f_busvol(col_SO2),  &
+             f_busvol(col_CO),f_busvol(col_NH3),f_busvol(col_ETHE), &
+             f_busvol(col_TOLU), f_busvol(col_HCHO), f_busvol(col_ISOPA),&
+             f_busvol(col_PM2P5), f_busvol(col_PM10), &
+             f_chmbusdyn(sm(sp_NO)  % dyn_offset), &
+             f_chmbusdyn(sm(sp_NO2) % dyn_offset), &
+             f_chmbusdyn(sm(sp_SO2) % dyn_offset), &
+             f_chmbusdyn(sm(sp_CO)  % dyn_offset), &
+             f_chmbusdyn(sm(sp_NH3) % dyn_offset), &
+             f_chmbusdyn(sm(sp_ETHE) % dyn_offset), &
+             f_chmbusdyn(sm(sp_TOLU) % dyn_offset), &
+             f_chmbusdyn(sm(sp_HCHO) % dyn_offset), &
+             f_chmbusdyn(sm(sp_ISOP) % dyn_offset), &
+             pm2p5, &
+             pm10, &
+             f_chmbusvol(sm(sp_RHO) % vol_offset), &
+             sm(sp_NO) % mol_wt, &
+             sm(sp_NO2) % mol_wt, &
+             sm(sp_SO2) % mol_wt, &
+             sm(sp_CO) % mol_wt, &
+             sm(sp_NH3) % mol_wt, &
+             sm(sp_ETHE) % mol_wt, &
+             sm(sp_TOLU) % mol_wt, &
+             sm(sp_HCHO) % mol_wt, &
+             sm(sp_ISOP) % mol_wt, &
+             1)
+!
+!================================================================================================
+!  Transfer particle bins to physics permanent bus to allow easy access in vkuocon6
+!
+             asize = f_chm_ni*nk
+             call mach_perm_transfer(f_chmbusvol(sm(sp_RHO) % vol_offset), f_busper(c_rhod), asize)
+             call mach_perm_transfer(thlevout,f_busper(c_thick), asize)
+!================================================================================================
+
+   call tmg_stop0 ( 65 )
+
+   contains
+      integer function ik(ix, kz)
+         implicit none
+         integer, intent(in) :: ix, kz
+         ik = (kz - 1) * f_chm_ni + (ix - 1)
+      end function ik
+
+end

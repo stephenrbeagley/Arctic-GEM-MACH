@@ -1,0 +1,167 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_getbus.ftn90
+! Creation       : A. Kallaur (MSC/ARQI) and V. Lee (MSC/RPN) (Avril 2005)
+! Description    : Obtains information about the entry (E), dynamics (D),
+!                  physics (P) and volatile (V) memory "buses"
+!
+! Extra info     : templated according to "getbus1.ftn" by:
+!                  M. Desgagne (Oct 1995)
+!
+! Arguments: IN
+!              n         --> maximum dimension of for nm, on, desc and para
+!              bus       --> bus identification (D, P or V)
+!              do_output --> Do we output something
+!
+!            OUT
+!              nm   --> liste of formal names in bus
+!              on   --> output name
+!              desc --> liste of formal descriptions in bus
+!              para --> liste of attributes for each variable in bus
+!              esp  --> length of bus
+!
+!==============================================================================
+
+subroutine chm_getbus(NM, ON, DESC, PARA, ESP, n, bus, do_output)
+   use chm_utils_mod
+   use chm_buses_mod
+   implicit none
+
+   integer,              intent(in)  :: n
+   character (len = 1),  intent(in)  :: bus
+   logical,              intent(in)  :: do_output
+   character (len = *),  intent(out) :: nm(n), desc(n), on(n)
+   integer,              intent(out) :: para(n, 7), esp
+
+   integer i, letop
+   character (len = 3) :: typebus
+! *
+! *-------------------------------------------------------------------
+! *
+   letop = 0
+   if(bus == "E") then
+      typebus = 'ENT'
+      if(n < chmenttop) then
+         write (chm_lun_out, 900) typebus, n, chmenttop
+         call chm_stop('chm_get_bus', -1)
+      endif
+      do i = 1, chmenttop
+         nm(i)      = chmentnm(i, 1)
+         on(i)      = chmentnm(i, 2)
+         desc(i)    = chmentdc(i)
+         para(i, 1) = chmentpar(i, 1)
+         para(i, 2) = chmentpar(i, 2)
+         para(i, 3) = chmentpar(i, 3)
+         para(i, 4) = chmentpar(i, 4)
+         para(i, 5) = chmentpar(i, 5)
+         para(i, 6) = chmentpar(i, 6)
+         para(i, 7) = chmentpar(i, 7)
+      end do
+      letop = chmenttop
+   else if(bus == "D") then
+      typebus = 'DYN'
+      if (n < chmdyntop) then
+         write (chm_lun_out, 900) typebus, n, chmdyntop
+         call chm_stop('chm_get_bus', -1)
+      endif
+      do i = 1, chmdyntop
+         nm(i)      = chmdynnm(i, 1)
+         on(i)      = chmdynnm(i, 2)
+         desc(i)    = chmdyndc(i)
+         para(i, 1) = chmdynpar(i, 1)
+         para(i, 2) = chmdynpar(i, 2)
+         para(i, 3) = chmdynpar(i, 3)
+         para(i, 4) = chmdynpar(i, 4)
+         para(i, 5) = chmdynpar(i, 5)
+         para(i, 6) = chmdynpar(i, 6)
+         para(i, 7) = chmdynpar(i, 7)
+      end do
+      letop = chmdyntop
+   else if(bus == "P") then
+      typebus='PER'
+      if (n<chmpertop) then
+         write (chm_lun_out, 900) typebus, n, chmpertop
+         call chm_stop('chm_get_bus', -1)
+      endif
+      do i = 1, chmpertop
+         nm(i)      = chmpernm(i, 1)
+         on(i)      = chmpernm(i, 2)
+         desc(i)    = chmperdc(i)
+         para(i, 1) = chmperpar(i, 1)
+         para(i, 2) = chmperpar(i, 2)
+         para(i, 3) = chmperpar(i, 3)
+         para(i, 4) = chmperpar(i, 4)
+         para(i, 5) = chmperpar(i, 5)
+         para(i, 6) = chmperpar(i, 6)
+         para(i, 7) = chmperpar(i, 7)
+      end do
+      letop = chmpertop
+   else if(bus == "V") then
+      typebus = 'VOL'
+      if (n < chmvoltop) then
+         write (chm_lun_out, 900) typebus, n, chmvoltop
+         call chm_stop('chm_get_bus', -1)
+      endif
+      do i = 1, chmvoltop
+         nm(i)      = chmvolnm(i, 1)
+         on(i)      = chmvolnm(i, 2)
+         desc(i)    = chmvoldc(i)
+         para(i, 1) = chmvolpar(i, 1)
+         para(i, 2) = chmvolpar(i, 2)
+         para(i, 3) = chmvolpar(i, 3)
+         para(i, 4) = chmvolpar(i, 4)
+         para(i, 5) = chmvolpar(i, 5)
+         para(i, 6) = chmvolpar(i, 6)
+         para(i, 7) = chmvolpar(i, 7)
+      end do
+      letop = chmvoltop
+   else
+      write (0, *) "Unknown type of BUS:", bus
+      write (0, *) "Aborting"
+      call chm_stop('chm_get_bus', -1)
+   endif
+
+   esp = 0
+   do i = 1, letop
+      esp = max(esp, para(i, 1) + para(i, 2) - 1)
+   end do
+
+   if (do_output) then
+      write (chm_lun_out, 101) typebus
+      write (chm_lun_out, 110)
+      write (chm_lun_out, 130)
+      do i = 1, letop
+         write (chm_lun_out, 120) nm(i), on(i), desc(i), para(i, 1), para(i, 2), &
+                        para(i, 3), para(i, 4)
+      end do
+      write (chm_lun_out, 130)
+      write (chm_lun_out, *) ' '
+   endif
+
+101  format (/43x, '+', 20('-'), '+'/43x, '|  ** CHEM ', a3, 'BUS**  |'/          &
+            '+', 17('-'), '+', 12('-'), '+', 10('-'), '+', 20('-'), '+', 9('-'), &
+            '+', 8('-'), '+', 8('-'), '+', 3('-'), '+', 4('-'), '+')
+110  format ('|', 6x, 'Name', 7x, '|', 3x, 'Output', 3x, '|',                      &
+               11x, 'Description ', 18x, '|  Start | Length |Ini|Stag|'/           &
+               '|', 17x, '|', 4x, 'name', 4x, '|', 41x, '|', 8x, '|', 8x, '|', 3x, &
+               '|ger |')
+120  format ('|', 1x, a16, '|', 3x, '"', a4, '"', 3x, '|', 1x, &
+               a40, '|', 2(i7, ' |'), i2, ' |', i2, '  |')
+130  format ('+', 17('-'), '+', 12('-'), '+', 41('-'), '+', 8('-'), '+', 8('-'), &
+            '+', 3('-'), '+', 4('-'), '+')
+900  format (/1x, '*********** ABORT IN CHMGETBUS *************'/   &
+               1x, 'Insufficient space for ', a3, 'BUS descriptors:'/ &
+               1x, 'Provided: ', i8, '      Required: ', i8/)
+
+   return
+end
+

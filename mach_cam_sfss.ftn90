@@ -1,0 +1,228 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_sfss.ftn90
+! Creation       : S. Gong, P. Huang, S. Gravel and B. Pabla for GEM-MACH, Sept. 2008
+!
+! Description    : A subroutine to evaluate the generation rate of sea salt aerosols
+!                  as a function of meteorologic conditions.
+!
+! Extra info     : - First version created by S. Gong Nov 21 1994 for CAM
+!                    Aerosol surface flux computation for sea-salt
+!                    Method:
+!                      1.  Monahan et al (Oceanic Whitecaps, E.C. Monahan
+!                          and G.Mac Niocail (eds), 1986)
+!                      2.  Smith et al.
+!                      3.  Gong, Global Biogeochemical Cycles 2003
+!                  - As in previous SFSALT but optimized by vectorization
+!                    (S. Gong, Dec 19, 1996)
+!                  - New landuse catagory fland array is used to replace gc.
+!                    the fland is based upon eos 1x1 km resolution data sets.
+!                    (S. Gong, Dec 12, 1997)
+!                  - Flux integration over each size bin is done now when model
+!                    starts or restarts. the integrated efficient is saved in
+!                    fintrow. (S. Gong Jun 11, 1998)
+!                  - Add the Smith's sea-salt surface flux function.
+!                    (S. Gong, Sep 02, 1999)
+!                  - The surf zone production of sea spray function of de Leeuw
+!                     et al (2001) was added with ocean cover less than 20% grid.
+!                    (S. Gong, Aug 01, 2001)
+!                  - The particle mass of each sub-devided bin is now computed
+!                    in the do ik=1,n*35 loop: pmass. it was done on an averaged
+!                    mass in a bin. Version 5C. (S. Gong, Oct 31, 2001)
+!                  - A new scheme - GONG-MONAHAN [Gong, Global Biogeochemical
+!                    Cycles,2003] was used re replace the old Monahan's scheme so
+!                    that the appliable range of sea-salt production is expanded
+!                    to less than 0.1 miron. (S. Gong, Nov 04, 2002)
+!
+! Arguments:  IN
+!                dshj       -> sigma difference of bottom and top of a layer
+!                F_chm_ni   -> number of longitude grid points
+!                lev        -> ilev + 1
+!                ilev       -> no. z-direct. vertical levels
+!                i_ss       -> switch for sea salt scheme
+!                t          -> temperature
+!                ntr        -> total number of trace substances (gases and aerosols)
+!                nn         -> species index of sea-salt
+!                ntp        -> Number of aerosol types
+!                isize      -> Number of size bins
+!                luc        -> landuse categories
+!                aerosize   -> Dry radius
+!                surfwd     -> surface wind module
+!                rhop0      -> dry aerosol density [kg/m^3]
+!                pressg     -> Grid row of surface pressure [Pa]
+!                gc         -> Sea ice fraction
+!                fland      -> Landuse
+!                il1        -> minimum index for F_chm_ni
+!                il2        -> maximum index for F_chm_ni
+!                iae1       -> first aerosol bin tracer
+!                irest      -> 1
+!                flux_L     -> .t. only emissions are calculated
+!                              .f. emissions calculated and  added to surface layer concentration
+!
+!             OUT
+!                FINTROW    -> Flux integration over each size bin
+!                RSFROW     -> sea salt surface flux
+!
+!             IN/OUT
+!                TRAC       -> sea salt aerosols concentration
+!
+!============================================================================
+
+subroutine mach_cam_sfss (TRAC, dshj, F_chm_ni, lev, ilev, i_ss, t, ntr, nn, ntp, isize, luc, &
+                          aerosize, surfwd, rhop0, rsfrow, pressg, gc, fland, FINTROW,   &
+                          il1, il2, iae1, irest, flux_L)
+   use chm_consphychm_mod
+   use mach_cam_utils_mod, only: delt
+   implicit none
+
+   integer, intent(in)     :: F_chm_ni, lev, ilev, ntr, ntp, isize, luc
+   integer, intent(in)     :: i_ss, nn, il1, il2, iae1, irest
+   real,    intent(in), dimension(F_chm_ni) :: gc, surfwd, pressg
+   real,    intent(in)     :: dshj(F_chm_ni, ilev), t(F_chm_ni, lev)
+   real,    intent(in)     :: aerosize(2, isize), rhop0(ntp)
+   real,    intent(in)     :: fland(F_chm_ni, luc)
+   logical, intent(in)     :: flux_L
+   real,    intent(out)    :: rsfrow(F_chm_ni, isize), fintrow(F_chm_ni, isize, 3)
+   real,    intent(inout)  :: trac(F_chm_ni, lev, ntr)
+
+!  local variables
+   integer :: n, i, ik, np
+   real    :: b, del
+   real    :: flx0, flx1, flx2, flx3, rwi, pvol, pmass, rr1, rr2, cc3, delr0, a1, a2, x
+   real, dimension(F_chm_ni) :: r1, r2, df0, df1, df2
+   real    :: cc(4, 4)
+   data cc/ 0.7674, 3.079, 2.572e-11, -1.424, 0.3926, 3.101, 4.190e-11, -1.404, &
+            0.2789, 3.115, 5.415e-11, -1.399, 0.4809, 3.082, 3.110e-11, -1.428 /
+
+
+
+!  (1) Gong-Monahan's source
+   b(x)  = (0.433333-log10(x))/0.433333
+   flx0(x)=1.373 * x ** (-4.7 * (1.+35.0 * x) ** (-0.017 * x ** (-1.44))) * (1.0 +  &
+                         0.057 * x ** 3.45) * 10.0 ** (1.607 * exp( - b(x) * b(x)))
+
+!  (2) Smith's source
+   flx1(x) = exp(-3.1 * (log(x / 2.1)) ** 2)
+   flx2(x) = exp(-3.3 * (log(x / 9.2)) ** 2)
+
+!  (3)  Surf zone production
+   flx3(x) = 1.1 * x ** (-1.65)
+
+   a1    = 0.0
+   a2    = 0.0
+   cc3   = 0.0
+   del   = 0.0
+   delr0 = 0.0
+   df0   = 0.0
+   df1   = 0.0
+   df2   = 0.0
+   pmass = 0.0
+   pvol  = 0.0
+   r1    = 0.0
+   r2    = 0.0
+   rr1   = 0.0
+   rr2   = 0.0
+   rwi   = 0.0
+   x     = 0.0
+
+!  for non-start run, use the saved fintrow to compute flux
+   if (irest == 0) goto 100
+
+!  otherwise compute the integration of sea-salt for this model run - fintrow
+   fintrow=0.0
+
+   do n = 1, isize
+      rr1 = aerosize(1, n) * 100.0     !from m to cm
+      rr2 = aerosize(2, n) * 100.0
+      do i = il1, il2
+!
+!  convert the dry size of sea-salt aerosols into wet size by taking rh into account.
+!  The wet size (80% rh) is used in the surface flux calculation.
+!
+!  temperature effect
+
+        cc3   = cc(3, 1) * (1.0 + 0.004 * (298.0 - t(i, ilev + 1)))
+        r1(i) = (rr1 ** 3 + cc(1, 1) * rr1 ** cc(2, 1) / (cc3 * rr1 ** cc(4, 1) - log10(0.8)) &
+                 ) ** (1.0 / 3.0) * 10000.00
+        r2(i) = (rr2 ** 3 + cc(1, 1) * rr2 ** cc(2, 1) / (cc3 * rr2 ** cc(4, 1) - log10(0.8)) &
+                 ) ** (1.0 / 3.0) * 10000.00
+
+!  df0 is for the indirect mechanism (via bubbles)
+
+        df0(i) = 0.0
+        df1(i) = 0.0
+        df2(i) = 0.0
+      end do
+      do ik = 1, n * 35
+         do i = il1, il2
+!  gc(F_chm_ni) = 1 for sea-ice excluded from sea-salt production
+
+            del = (rr2 - rr1) / real(n * 35)          !del in cm
+            rwi = (rr1 + del * real(ik - 1)) * 1.e-2  !from cm to m
+
+!  dry volume and mass of an aerosol particle of size rwi
+
+            pvol = 4.0 / 3.0 * 3.1415926 * rwi ** 3
+            pmass = pvol * rhop0(nn)
+            delr0 = (r2(i) - r1(i)) / real(n * 35)
+
+            if (fland(i, 14) > 0.0 .and. gc(i) /= 1.0) then
+               if (i_ss == 1) then      !gong's scheme
+                  df0(i) = df0(i) + delr0 * pmass * flx0(r1(i) + delr0 * real(ik - 1))
+
+               else                     !smith's scheme
+                  df0(i) = df0(i) + delr0 * pmass * flx1(r1(i) + delr0 * real(ik - 1))
+                  df1(i) = df1(i) + delr0 * pmass * flx2(r1(i) + delr0 * real(ik - 1))
+               end if
+
+!  surf zone production
+
+               if (fland(i, 14) < 1.0) then
+                  df2(i) = df2(i) + delr0 * 2.0 * pmass * flx3(r1(i) * 2.0 &
+                         + delr0 * 2.0 * real(ik - 1))
+               end if
+            end if
+         end do
+      end do
+      do i=il1, il2
+         fintrow(i, n, 1) = df0(i)
+         fintrow(i, n, 2) = df1(i)
+         fintrow(i, n, 3) = df2(i)
+      end do
+   end do
+100 continue
+
+!  insertion du flux de surface
+
+   do n = 1, isize
+      np = isize * (nn - 1) + n + (iae1 - 1)
+      do i = il1, il2
+         if (surfwd(i) > 0.0 .and. gc(i) /= 1.0 .and. fland(i,14) > 0.0) then
+            if (i_ss == 1) then      !gong-monahan's scheme
+               rsfrow(i, n) = fintrow(i, n, 1) * surfwd(i) ** 3.41 * fland(i,14)
+            else                     !smith's scheme
+               a1 = 10 ** (0.0676 * surfwd(i) + 2.430)
+               a2 = 10 ** (0.9590 * sqrt(surfwd(i)) - 1.476)
+               rsfrow(i, n) = (a1 * fintrow(i, n, 1) + a2 * fintrow(i, n, 2)) &
+                             * fland(i,14)
+            end if
+
+!  adding surfing production flux
+            rsfrow(i, n) = rsfrow(i, n) + fintrow(i, n, 3) &
+                          * exp(0.23 * surfwd(i)) * fland(i, 14)
+            if (.not. flux_L) trac(i, ilev + 1, np) = trac(i, ilev + 1, np) + rsfrow(i, n) &
+                                   / (dshj(i, ilev) * pressg(i) / grav) * 2.0 * delt
+         end if
+      end do
+   end do
+   return
+end

@@ -1,0 +1,634 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_cam_main.ftn90
+! Creation       : S. Gong, W. Gong, V. Bouchet, S. Menard, S. Gravel, B. Pabla and
+!                  P. Huang for GEM-MACH, June 2008
+! Description    : Main entry of the CAM - CANADIAN AEROSOL MODULE VERSION 1.0
+!
+! Extra info     : - First version created by S. Gong Sept 05 1994 for CAM
+!                  - Vectorized the whole program (S. Gong, Jan 19/1996)
+!                  - Add sulphate aerosol (S. Gong, Jul 09, 1997)
+!                  - Interfaced with adom gas drydeposition (S. Gong, Oct 01, 1997)
+!                  - CAM version 1.0 with aerosol activation and cloud chemistry
+!                    (S. Gong, Jan 01/1998)
+!                  - Adapted for use in aurams. (S. Gong, Jun 20, 1999)
+!                  - Modifications for aurams v0.25 (L. Zhang, V. Bouchet, Sept 2000)
+!                  - Implement aerocld_new from v0.20+cldchem (W. Gong, Mar 2001)
+!                  - Implement wet fluxes (modified scaveng.f) (W. Gong, May 2001)
+!                  - Modification to implement het. chem. (V. Bouchet, Aug 2001)
+!                  - Documentation/headers (S. Menard, July 2008)
+!
+! Arguments:  IN
+!                  ilev    -> no. z-direct. vertical levels
+!                  lev     -> ilev+1
+!                  F_chm_ni-> number of longitude grid points
+!                  il1     -> minimum index for F_chm_ni
+!                  il2     -> maximum index for F_chm_ni
+!                  jlat    -> J Slice number
+!                  throw   -> Temp
+!                  rhrow   -> Relative humidity
+!                  lon     -> longitude
+!                  pressg  -> Grid row of surface pressure [Pa]
+!                  shj     -> Local mid-layer sigma value
+!                  cam     -> Identifier for CAM using with gas chemistry of online/offline (1.0/10.0)
+!                  it      -> Time step for diagnosis of a tracer
+!                  rsfro w -> Sea salt surface flux
+!                  wrow    -> Model vertical wind speed
+!                  irest   -> 1
+!                  tcszrow -> not used
+!                  cszrow  -> not used
+!                  tracg   -> aerosol tracers concentration
+!                  ntr     -> Total number of trace substances (gases and aerosols)
+!                  ntp     -> Number of aerosol types
+!                  kount   ->
+!                  luc     -> landuse categories
+!                  aerosize-> aerosol bin boundaries; depends upon number of bins
+!                  aeroname-> Name of each aerosol type
+!                  ohrow   -> oh concentration
+!                  no3row  -> no3 concentration
+!                  nsub    -> No. of subgrid for caculating
+!                  cldcv   -> cloud fraction
+!                  zmlwc   -> CWC content (bulk) (kg/kg)
+!                  qr      -> rain water/snow
+!                  roarow  -> Air density (kg/m3)
+!                  rhop0   -> dry aerosol density [ug/m^3]
+!                  thlev   -> Layer thickness [m]
+!                  dshj    -> Sigma difference of bottom and top of a layer
+!                  ih2s    -> pointer location of h2s
+!                  idms    -> pointer location of dms
+!                  iso2    -> pointer location of so2
+!                  iso4    -> pointer location of so4
+!                  iae1    -> pointer location of ae1
+!                  icam    -> pointer location of last bin tracer
+!                  icdn    -> pointer location of ccn
+!                  rtso2   -> so2 oxidation rate
+!                  rtdms   -> dms oxydation rate
+!                  rth2s   -> h2s oxydation rate
+!                  fland   -> Landuse
+!                  wpevpa  ->
+!                  wrscav  -> cloud to rain coll tend (consun)
+!                  coagfr  -> Coagulation transformation ratio
+!                  pvol    -> bin volume of dry aerosol
+!                  tmin    -> minimum thresold value
+!                  ns      -> Seasonal periods in Robichaud Dev. vel. scheme
+!                  pllp    -> Parameter for dry deposition velocity of PM
+!                  aest    -> Parameter for dry deposition velocity of PM
+!                  gamma   -> Parameter for dry deposition velocity of PM
+!                  soa     -> Secondary organics aerosols
+!                  seasn   -> Assigned season descriptors
+!                  ra      -> Aerodynamic resistance for species "species" (s/m)
+!                  usi     -> friction velocity
+!                  igf     -> Total indices of coagulation
+!                  igfij   -> Indices of coagulation transformation
+!                  ih2o2   -> pointer location of h2o2
+!                  irooh   -> pointer location of rooh
+!                  ihno3   -> pointer location of hno3
+!                  inh3    -> pointer location of nh3
+!                  idust   -> pointer location of dust
+!                  io3     -> pointer location of o3
+!                  fctr    -> Cloud-to-rain conversion rate (s-1)
+!                  frevp   -> evap. of strat. precip (consun)
+!                  wetflx  -> Wet flux
+!                  nswdep  -> number of species in wet dep flux
+!                  p3drow  -> 3d pressure (mb)
+!                  rhorow - > 3-D air density array (kg/m^3)
+!                  hetselec-> heterogeneous chem key (-1, 0 ,1)
+!                  pbltrow -> First level in the PBL
+!                  uu, vv  -> Wind components
+!
+!             OUT
+!                  DLEV    -> diagnostic level output
+!                  TRWTROW -> Aerosol liquid water content for each bin
+!                  RTCOA   -> Coagulation rate
+!                  RTICLD  -> Not used
+!                  RTBCLD  -> Rain Scavenging
+!                  RTDRY   -> deposition tendencies for each layer
+!                  RTNUCL  -> Nucleation
+!                  BETA    -> brownian coagulation coefficient
+!                  TTCOND  -> Tracers concentration
+!                  CLD_CHM -> Cloud tracer concentration
+!                  TS2     -> total so2 in column
+!                  TS4     -> total so4 in column (bulk) before rain scavenging
+!                  CLTS    -> column total S after rain scavenging
+!                  CLS4    -> SO4 (bulk) column total after  rain scavenging
+!                  DRYFLX  -> Dry deposition flux
+!                  ID      -> aerosol species ID
+!                  JD      -> j slice number for diagnostic outputs of cam species
+!
+!             IN/OUT
+!                  XROW    -> tracers conncentration
+!                  ITR     ->
+!                  CONDNU  -> condensation
+!                  TCLDCV  -> total cloud cover
+!
+!============================================================================
+
+subroutine mach_cam_main (ilev, lev, F_chm_ni, il1, il2, jlat, throw, rhrow, lon, XROW,   &
+                          pressg, shj, it, ITR, rsfrow, DLEV, wrow, irest,      &
+                          tcszrow, cszrow, tracg, ntr, ntp, kount, luc, aerosize,    &
+                          aeroname, ohrow, no3row, nsub, ID, cldcv, zmlwc,    &
+                          qr, TRWTROW, roarow, rhop0, RTCOA, RTICLD, RTBCLD, RTDRY,  &
+                          thlev, dshj, JD, ih2s, idms, iso2, iso4, iae1, icam, icdn, &
+                          rtso2, rtdms, rth2s, fland, RTNUCL, BETA, wpevpa, wrscav,  &
+                          coagfr, pvol, tmin, ns, pllp, aest, gamma, soa, seasn, ra, &
+                          usi, igf, CONDNU, igfij, TTCOND, ih2o2, irooh, ihno3,      &
+                          inh3, idust, io3, TCLDCV, CLD_CHM, fctr, frevp, wetflx,    &
+                          nswdep, TS2, TS4, CLTS, CLS4, p3drow, rhorow, hetselec,    &
+                          DRYFLX, chm_aqueous_s, pbltrow, uu, vv, shtj, zfprec, qrow,&
+                          oldtop, oldbot, nc_out, aeronum)
+
+   use mach_cam_headers_mod, only: mach_cam_aeroprop, mach_cam_sulfate, mach_cam_condsoa, &
+                                   mach_cam_aerocld, mach_cam_coagd, mach_cam_scaveng,    &
+                                   mach_cam_drydepo
+   use chm_utils_mod
+   use mach_aurams_headers_mod, only: mach_aurams_tsysms
+   use mach_cam_utils_mod
+   implicit none
+
+   integer, intent(in) :: ilev, lev, F_chm_ni, il1, il2, jlat, it
+   integer, intent(in) :: ntr, ntp, luc, nsub, lon, ns
+   integer, intent(in) :: irest, kount
+   integer, intent(in) :: iso2, iso4, iae1, icam
+   integer, intent(in) :: icdn, hetselec
+   integer, intent(in) :: ih2o2, irooh, ihno3, inh3, idust, io3, nswdep
+   integer, intent(in) :: ih2s, idms
+   integer, intent(in) :: igf(isize), igfij(isize, isize * isize, 2)
+   real,    intent(in) ::  tmin
+   real,    intent(in),  dimension(F_chm_ni, lev)                 :: throw, rhrow, shtj, qrow
+   real,    intent(in),  dimension(F_chm_ni, ilev)                :: shj, dshj, wrow, soa, roarow, thlev, zfprec
+   real,    intent(in),  dimension(F_chm_ni, ilev)                :: oldtop,oldbot
+   real,    intent(in),  dimension(F_chm_ni, ilev)                :: wpevpa, wrscav, fctr, frevp, p3drow, rhorow
+   real,    intent(in),  dimension(F_chm_ni)                      :: pressg, seasn
+   real,    intent(in),  dimension(F_chm_ni, ilev)                :: nc_out
+   real,    intent(in),  dimension(F_chm_ni, ilev, ntr)           :: tracg
+   real,    intent(in),  dimension(F_chm_ni, ntr)                 :: rsfrow
+   real,    intent(in),  dimension(F_chm_ni, ilev, 2)             :: cldcv, zmlwc, qr, rtso2
+   real,    intent(in),  dimension(2, isize)                 :: aerosize
+   real,    intent(in),  dimension(ntp)                      :: rhop0
+   real,    intent(in),  dimension(isize)                    :: pvol(isize)
+   real,    intent(in),  dimension(isize, isize, isize)      :: coagfr
+   real,    intent(in),  dimension(luc, ns)                  :: pllp
+   real,    intent(in),  dimension(luc)                      :: aest, gamma
+   real,    intent(in),  dimension(F_chm_ni, luc)                 :: ra, usi, fland
+   real,    intent(in),  dimension(F_chm_ni, ilev)                :: ohrow, no3row, rth2s, rtdms
+   real,    intent(in),  dimension(F_chm_ni)                      :: tcszrow, cszrow
+   real,    intent(in),  dimension(f_chm_ni, ilev)                :: uu, vv
+   real,    intent(in),  dimension(f_chm_ni)                 :: pbltrow
+
+   character (len = 8),  intent(in)                          :: aeroname(ntp)
+   character (len = NMLKEY_LEN), intent(in)                  :: chm_aqueous_s
+   integer, intent(out)                                      :: id, jd, dlev
+   real,    intent(out), dimension(F_chm_ni, ilev)                :: rtnucl
+   real,    intent(out), dimension(F_chm_ni, ilev, isize)         :: trwtrow
+   real,    intent(out), dimension(F_chm_ni, ilev, ntr)           :: rtcoa, rtbcld, rticld, rtdry, ttcond
+   real,    intent(out), dimension(F_chm_ni, ilev, isize, isize)  :: beta
+   real,    intent(out), dimension(F_chm_ni, ilev, 7)             :: cld_chm
+   real,    intent(out), dimension(F_chm_ni, nswdep)              :: wetflx
+   real,    intent(out), dimension(F_chm_ni, ilev, 3, 2)          :: ts2, ts4
+   real,    intent(out), dimension(F_chm_ni, 4, 2)                :: clts, cls4
+   real,    intent(out), dimension(F_chm_ni, ntp)                 :: dryflx
+   integer, intent(inout)                                    :: itr
+   real,    intent(inout), dimension(F_chm_ni, ilev)              :: tcldcv
+   real,    intent(inout), dimension(F_chm_ni, lev, ntr)          :: xrow
+   real,    intent(inout)                                    :: condnu(15)
+   real,    intent(out), dimension(F_chm_ni, ilev, isize)     :: aeronum
+
+! local variables
+   logical     lsoa, lso4
+   integer  :: izon, n, l, i, i_mx, l_mx, j_mx
+   integer  :: itr_mx, k, nt
+   real     :: adt2, rgrid_mx
+   real     :: tmass, q_binmx
+   real, dimension(F_chm_ni, ilev, isize)     :: q_bin
+   real, dimension(F_chm_ni, nswdep, ilev, 2) :: flux
+   real, dimension(F_chm_ni, ilev, isize)     :: totmas, pdiff, colef, rhop, pdepv, rtcond, rtso4, rhsize
+   real, dimension(F_chm_ni, ilev, nsub)      :: wsub
+   real, dimension(F_chm_ni, ilev)            :: rcrits
+   real, dimension(F_chm_ni, ntr, 3)          :: gdrem
+   real, dimension(F_chm_ni, ilev, ntr)       :: rgrid
+   logical local_dbg
+
+   adt2     = 0.0
+   aeronum  = 0.0
+   colef    = 0.0
+   flux     = 0.0
+   gdrem    = 0.0
+   pdepv    = 0.0
+   pdiff    = 0.0
+   q_bin    = 0.0
+   q_binmx  = 0.0
+   rcrits   = 0.0
+   rgrid    = 0.0
+   rgrid_mx = 0.0
+   rhop     = 0.0
+   rhsize   = 0.0
+   rtcond   = 0.0
+   rtso4    = 0.0
+   tmass    = 0.0
+   totmas   = 0.0
+   wsub     = 0.0
+
+   local_dbg = (.false. .or. global_debug)
+
+   if (idebug >= 4 .and. local_dbg) write (chm_lun_out, *) ' cam --> start'
+
+!  section 0: initialization
+   flux   = 0.0  !PH
+   rtcoa  = 0.0
+   rticld = 0.0
+   rtbcld = 0.0
+   gdrem  = 0.0
+   rtso4  = 0.0
+   rtcond = 0.0
+   rtnucl = 0.0
+   ttcond = 0.0
+   pdepv  = 0.0
+   pdiff  = 0.0
+   rtdry  = 0.0
+   colef  = 0.0
+
+   adt2     = 2.0 * delt
+   izon     = 3
+   lsoa     = .true.
+   lso4     = .true.
+   rgrid_mx = 0.0
+
+   do n = iae1, icam
+      do l = 1, ilev
+         do i = il1, il2
+            rgrid(i, l, n) = xrow(i, l + 1, n)
+            if (rgrid(i, l, n) > 0.1 .or. rgrid(i, l, n) < 0.0) then
+               idebug = 10
+               dlev = l
+               id = i
+               jd = jlat
+               itr = n
+            end if
+            if (rgrid(i, l, n) > rgrid_mx) then
+            rgrid_mx = rgrid(i, l, n)
+            i_mx = i
+            l_mx = l
+            j_mx = jlat
+            itr_mx = n
+            end if
+         end do
+      end do
+   end do
+
+   if (jlat == jd .and. kount == it) then
+      call mach_aurams_prntrow(tracg(1, dlev, itr), 'tracg  ', 'in cam        ',    1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(xrow(1, dlev + 1, itr), 'xrow   ', 'in cam        ', 1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rsfrow(1, itr), 'rsfrow ', 'in cam        ',         1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(cldcv(1, dlev, 1), 'cloud  ', 'stratiform    ',      1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(cldcv(1, dlev, 2), 'cloud  ', 'convective    ',      1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(tcldcv(1, dlev), 'cloud  ',  'total         ',       1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(zmlwc(1, dlev, 1), 'clw    ', 'stratiform    ',      1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(zmlwc(1, dlev, 2), 'clw    ', 'convective    ',      1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(qr(1, dlev, 1), 'precip ', 'stratiform    ',         1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(qr(1, dlev, 2), 'precip ', 'convective    ',         1, 1, &
+                               F_chm_ni, 1, lon, jlat)
+   end if
+
+!  section 2:  aerosol properties of clear sky
+!     a - ambient radius and density
+!     b - number density
+
+   call tmg_start0 ( 17, 'mach_cam_aeroprop')
+
+   call mach_cam_aeroprop(ntr, ntp, F_chm_ni, ilev, il1, il2, isize, RHSIZE, aerosize, RHOP, &
+                          rhop0, rhrow, throw, rgrid, AERONUM, TOTMAS, iae1, aeroname,  &
+                          TRWTROW, roarow, shj, pressg, PDIFF, PDEPV)
+  call tmg_stop0 ( 17 )
+
+   wsub = 0.0
+
+   if (idebug >= 1 .and. jlat == jd .and. local_dbg) then
+      write(chm_lun_out, *)'kt = ', kount
+      call  mach_aurams_tsysms(xrow, tmass, F_chm_ni, ilev, il1, il2, ntr, iae1, izon, isize, 1)
+      write(chm_lun_out, *)' aeroprop -> aeronum  ', aeronum(id, dlev, isize)
+      write(chm_lun_out, *)' aeroprop -> totmas   ', totmas(id, dlev, isize)
+      write(chm_lun_out, *)' aeroprop -> rsfrow   ', rsfrow(id, itr), ntp, ntr
+      write(chm_lun_out, *)' aeroprop -> xrow   ',   xrow(id, dlev + 1, itr)
+   end if
+
+!  sections 3 and 4 have been swithed to allow for the proper addition of heterogeneous chemistry
+!
+!  section 4:  sulphur physics and chemistry [clear sky]
+!              soa condensation
+!              a - sulphur chemistry
+!              b - nucleation and condensation
+
+   if (.not. lso4) then
+      do k = 1, ilev
+         do n = 1, ntr
+            do i = il1, il2
+               ttcond(i, k, n) = xrow(i, k + 1, n)
+            end do
+         end do
+      end do
+   end if
+
+   do nt = 1, ntp
+      if (aeroname(nt) == 'SULPHATE' .and. lso4) then
+
+   call tmg_start0 ( 18, 'mach_cam_sulfate')
+
+         call mach_cam_sulfate(lev, ilev, F_chm_ni, il1, il2, ih2s, idms, iso2, iso4, RGRID, &
+                               aeronum, XROW, ntr, ntp, roarow, pressg, throw, rhrow,   &
+                               shj, ohrow, no3row, nt, rhsize, aerosize, tcszrow,       &
+                               cszrow, isize, delt, RTNUCL, rhop0, RTCOND, rtso2,       &
+                               rtdms, rth2s, cldcv, iae1, pvol, tmin, COLEF, cam, 0,    &
+                               condnu, TTCOND)
+!
+   call tmg_stop0 ( 18 )
+
+         if (idebug >= 1 .and. jlat == jd .and. local_dbg) then
+            write(chm_lun_out, *)'kt = ', kount
+            call  mach_aurams_tsysms(xrow, tmass, F_chm_ni, ilev, il1, il2, ntr, iae1, izon, isize, 3)
+            write(chm_lun_out, *)' sulfate -> rtnucl  ', rtnucl(id, dlev)
+            write(chm_lun_out, *)' sulfate -> rtcon   ', rtcond(id, dlev, isize)
+            write(chm_lun_out, *)' sulfate -> rtso2   ', rtso2(id, dlev, 1)
+            write(chm_lun_out, *)' sulfate -> xrow   ', xrow(id, dlev + 1, itr)
+         end if
+      end if
+
+      if (aeroname(nt) == 'OMCARBON' .and. lsoa) then
+   call tmg_start0 ( 19, 'mach_cam_condsoa')
+   call mach_cam_condsoa(lev, ilev, F_chm_ni, il1, il2, RGRID, aeronum, XROW, ntr, ntp, &
+                           roarow, nt, jlat, isize, delt, RTCOND, iae1, pvol, colef, &
+                           rhop0, soa, pressg, throw, shj, aerosize)
+
+   call tmg_stop0 ( 19 )
+      end if
+
+      do k = 1, ilev
+         do n = 1, ntr
+            do i = il1, il2
+               ttcond(i, k, n) = xrow(i, k + 1, n) - ttcond(i, k, n)
+            end do
+         end do
+      end do
+   end do
+
+
+!  section 3: aerosol-cloud interaction
+!          a - aerosol activation
+!          b - gas-aqueous phase transfer and in-cloud oxidation of siv to svi
+!          c - cloud-to-rain conversion and removal
+!  RTSO2 is not used in mach_cam_aerocld, WG mar 2001.
+
+   if (chm_aqueous_s == 'GONG' .or. chm_aqueous_s == 'NIL') then
+   call tmg_start0 ( 20, 'mach_cam_aerocld')
+
+   call mach_cam_aerocld(THROW, XROW, AERONAME, LEV, ILEV, F_chm_ni, IL1, IL2, RHSIZE,   &
+                        RHOP, AERONUM, NTR, NTP, ISIZE, THLEV, ROAROW, ICDN, ZMLWC, &
+                        NSUB, WSUB, WROW, JLAT, CAM, RCRITS, ISO2, Q_bin, ih2o2,    &
+                        irooh, ihno3, inh3, idust, io3, AEROSIZE, RHOP0, IAE1,      &
+                        tcldcv, cld_chm, ADT2, flux, wetflx, fctr, frevp, nswdep,   &
+                        ts2, ts4, clts, cls4, rhrow, kount, iso4, p3drow, rhorow,   &
+                        hetselec, chm_aqueous_s, nc_out)
+
+   call tmg_stop0 ( 20 )
+   end if
+
+   rgrid_mx = 0.0
+   q_binmx = 0.0
+   do n = iae1, icam
+      do l = 1, ilev
+         do i = il1, il2
+            rgrid(i, l, n) = xrow(i, l + 1, n)
+            if (rgrid(i, l, n) > 0.1 .or. rgrid(i, l, n) < 0.0) then
+               idebug = 10
+               dlev = l
+               id = i
+               jd = jlat
+               itr = n
+            end if
+            if (rgrid(i, l, n) > rgrid_mx) then
+               rgrid_mx = rgrid(i, l, n)
+               i_mx = i
+               l_mx = l
+               j_mx = jlat
+               itr_mx = n
+            end if
+         end do
+      end do
+   end do
+
+
+   if (idebug >= 1 .and. jlat == jd .and. local_dbg) then
+      write(chm_lun_out, *)'kt = ', kount
+      call  mach_aurams_tsysms(xrow, tmass, F_chm_ni, ilev, il1, il2, ntr, iae1, izon, isize, 2)
+      write(chm_lun_out, *)' aerocld -> rticld  ', rticld(id, dlev, itr)
+      write(chm_lun_out, *)' aerocld -> cld fr  ', cldcv(id, dlev, 1), cldcv(id, dlev, 2), tcldcv(id, dlev)
+      write(chm_lun_out, *)' aerocld -> cld wt  ', zmlwc(id, dlev, 1), zmlwc(id, dlev, 2)
+      write(chm_lun_out, *)' aerocld -> precip  ', qr(id, dlev, 1), qr(id, dlev, 2)
+      write(chm_lun_out, *)' aerocld -> ep & sv ', wpevpa(id, dlev), wrscav(id, dlev)
+      write(chm_lun_out, *)' aerocld -> rtso4   ', rtso4(id, dlev, isize)
+      write(chm_lun_out, *)' aerocld -> rtso2   ', rtso2(id, dlev, 2)
+      write(chm_lun_out, *)' aerocld -> xrow   ' , xrow(id, dlev + 1, itr)
+   end if
+
+
+! Section 5: coagulation
+   if (icoag == 0) go to 110
+
+   call tmg_start0 ( 21, 'mach_cam_coagd')
+
+   call mach_cam_coagd(F_chm_ni, il1, il2, ilev, throw, isize, roarow, RTCOA, rhsize, TOTMAS, &
+                       AERONUM, ntr, ntp, coagfr, iae1, kount, BETA, adt2, icoag, irest, &
+                       XROW, pvol, jlat, icob, tmin, pdepv, pdiff, 0, igf, igfij,        &
+                       rhop, aerosize)
+
+  call tmg_stop0 ( 21 )
+
+   if (idebug >= 1 .and. jlat == jd .and. local_dbg) then
+      write(chm_lun_out, *)'kt = ', kount
+      write(chm_lun_out, *)' coagd -> rtcoa  ', rtcoa(id, dlev, itr), icob
+      write(chm_lun_out, *)' coagd -> xrow   ', xrow(id, dlev + 1, itr)
+      call  mach_aurams_tsysms(xrow, tmass, F_chm_ni, ilev, il1, il2, ntr, iae1, izon, isize, 4)
+   end if
+  110 continue
+
+!  section 6: below-cloud scavenging of aerosols
+!          a - rain or snow scavenging
+
+   if (iblcld == 0) go to 120
+   call tmg_start0 ( 22, 'mach_cam_scaveng')
+   call mach_cam_scaveng(THROW, XROW, tcldcv, frevp, LEV, ILEV, F_chm_ni, IL1, IL2, &
+                         SHJ, PRESSG, PDEPV, QR, RTBCLD, RHSIZE, RHOP, DSHJ,   &
+                         IAE1, PDIFF, TMIN, NTR, NTP, ISIZE, THLEV, ADT2,      &
+                         GDREM, ROAROW, wetflx, flux, nswdep, iso2, ih2o2,     &
+                         irooh, ihno3, inh3, aeroname, jlat, ts2, ts4, clts,   &
+                         cls4, iso4)
+   call tmg_stop0 ( 22 )
+
+   if (idebug >= 1 .and. jlat == jd .and. local_dbg) then
+      write(chm_lun_out, *)'kt = ', kount
+      call mach_aurams_tsysms(xrow, tmass, F_chm_ni, ilev, il1, il2, ntr, iae1, izon, isize, 5)
+      write(chm_lun_out, *)' scaveng -> rtbcld  ', rtbcld(id, dlev, itr)
+      write(chm_lun_out, *)' scaveng -> xrow    ', xrow(id, dlev + 1, itr)
+   end if
+
+!  section 7: sedimentation and dry deposition
+!          a - particle dry deposition and gravitational settling
+!          b - gas dry deposition
+
+  120 if (idrydep == 0) go to 150
+
+!  check column total S and column so4p before dry deposition
+
+   do k = 1, ilev
+      do i = 1, F_chm_ni
+         ts4(i, k, 1, 1) = 0.0
+         ts4(i, k, 1, 2) = 0.0
+      end do
+   end do
+
+!  SO2, SO4 (bulk) and column SO4p and total S; (mole/m3 and mole/m2, respectively)
+
+   do i = 1, F_chm_ni
+      clts(i, 4, 1) = wetflx(i, 4) + wetflx(i, 1)
+   end do
+   do k = 1, ilev
+      do i = 1, F_chm_ni
+         ts2(i, k, 1, 1) = xrow(i, k + 1, iso2) * 1000.0 * roarow(i, k) / 64.0
+      end do
+   end do
+   do n = iae1, iae1 + isize - 1
+      do k = 1, ilev
+         do i = 1, F_chm_ni
+            ts4(i, k, 1, 1) = ts4(i, k, 1, 1) + xrow(i, k + 1, n) * 1000.0 * roarow(i, k) / 96.0
+         end do
+      end do
+   end do
+   do k = 1, ilev
+      do i = 1, F_chm_ni
+         clts(i, 4, 1) = clts(i, 4, 1) + (ts2(i, k, 1, 1) + ts4(i, k, 1, 1) + xrow(i, k + 1, iso4) *  &
+                         1000.0 * roarow(i, k) / 98.0) * thlev(i, k)
+         cls4(i, 4, 1) = cls4(i, 4, 1) + ts4(i, k, 1, 1) * thlev(i, k)
+      end do
+   end do
+
+!  drygas subroutine is removed from drydepo, thus all drygas
+!  related varibles are removed from drydepo and this subroutine (Sep. 2000, Leiming Zhang)
+
+   call tmg_start0 ( 23, 'mach_cam_drydepo')
+   call mach_cam_drydepo(ilev, lev, F_chm_ni, il1, il2, seasn, ra, usi, throw, isize, &
+                         ntp, ntr, adt2, pressg, tmin, thlev, roarow, rhsize,    &
+                         fland, xrow, Pdepv, RTDRY, dshj, gdrem, iae1, pdiff,    &
+                         luc, ns, pllp, gamma, aest, dryflx, aerosize, rhorow, oldtop, oldbot)
+  call tmg_stop0 ( 23 )
+!
+!  Second call to mach_cam_aeroprop so that aerosol water matches new aerosol distribution on output:
+!
+   do n = iae1, icam
+      do l = 1, ilev
+         do i = il1, il2
+            rgrid(i, l, n) = xrow(i, l + 1, n)
+         end do
+      end do
+   end do
+
+   call mach_cam_aeroprop(ntr, ntp, F_chm_ni, ilev, il1, il2, isize, RHSIZE, aerosize, RHOP, &
+                          rhop0, rhrow, throw, rgrid, AERONUM, TOTMAS, iae1, aeroname,  &
+                          TRWTROW, roarow, shj, pressg, PDIFF, PDEPV)
+
+
+
+!  SO2, SO4 (bulk) and column SO4p and total S; (mole/m3 and mole/m2, respectively)
+
+   do i = 1, F_chm_ni
+      clts(i, 4, 2) = wetflx(i, 4) + wetflx(i, 1)
+   end do
+   do k = 1, ilev
+      do i = 1, F_chm_ni
+         ts2(i, k, 1, 2) = xrow(i, k + 1, iso2) * 1000.0 * roarow(i, k) / 64.0
+      end do
+   end do
+   do n = iae1, iae1 + isize - 1
+      do i = 1, F_chm_ni
+         clts(i, 4, 2) = clts(i, 4, 2) + gdrem(i, n, 1) * 1000.0 / 96.0
+      end do
+      do k = 1, ilev
+         do i = 1, F_chm_ni
+            ts4(i, k, 1, 2) = ts4(i, k, 1, 2) + xrow(i, k + 1, n) * 1000.0 * roarow(i, k) / 96.0
+         end do
+      end do
+   end do
+   do k = 1, ilev
+      do i = 1, F_chm_ni
+         clts(i, 4, 2) = clts(i, 4, 2) + (ts2(i, k, 1, 2) + ts4(i, k, 1, 2) + xrow(i, k + 1, iso4) *  &
+                         1000.0 * roarow(i, k) / 98.0) * thlev(i, k)
+         cls4(i, 4, 2) = cls4(i, 4, 2) + ts4(i, k, 1, 2) * thlev(i, k)
+      end do
+   end do
+
+   if (idebug >= 1 .and. jlat == jd .and. local_dbg) then
+      write(chm_lun_out, *)'kt = ', kount
+      call mach_aurams_tsysms(xrow, tmass, F_chm_ni, ilev, il1, il2, ntr, iae1, izon, isize, 6)
+      write(chm_lun_out, *)' drydepo -> rtdry  ', rtdry(id, dlev, itr)
+      write(chm_lun_out, *)' drydepo -> xrow    ', xrow(id, dlev + 1, itr)
+   end if
+150 continue
+
+!  section 8: diagnostic outputs
+
+   if (jlat == jd .and. kount == it) then
+      call  mach_aurams_prntrow(rtdry(1, dlev, itr), 'rtdry  ', 'after drydepo ',   1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call  mach_aurams_prntrow(rtbcld(1, dlev, itr), 'rtbcld ', 'after drydepo ',  1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rticld(1, dlev, itr), 'rticld ',  'after drydepo ',  1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rhsize(1, dlev, 1), 'rhsize ', 'in cam        ',     1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(totmas(1, dlev, 1), 'totmas ', 'in cam        ',     1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(aeronum(1, dlev, 1), 'aeronum', 'in cam        ',    1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rhop(1, dlev, 1), 'rhop   ', 'in cam        ',       1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rtso4(1, dlev, isize), 'rtso4  ', 'in cam        ',  1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rtso2(1, dlev, 1), 'rtso2-1', 'in cam        ',      1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rtso2(1, dlev, 2), 'rtso2-2', 'in cam        ',      1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rtcond(1, dlev, isize), 'rtcond ', 'in cam        ', 1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rtnucl(1, dlev), 'rtnucl ', 'in cam        ',        1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+      call mach_aurams_prntrow(rcrits(1, dlev), 'rcrit  ',  'in cam        ',       1, 1, &
+                                F_chm_ni, 1, lon, jlat)
+   end if
+
+   if (idebug == 10 .and. local_dbg) then
+         write (0, *)' tracer concentration is too high or negative'
+         write (0, *)' overflow is likely. cam stops '
+         write (0, *)' tracer ', itr, '= ', rgrid(id, dlev, itr)
+         write (0, *)' dlev    id      jd    itr      it '
+         write (0, *) dlev, id, jd, itr, it
+         call chm_stop('mach_cam_main ', -1)
+   end if
+
+   return
+end

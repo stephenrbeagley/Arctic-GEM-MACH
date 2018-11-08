@@ -1,0 +1,67 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_incld_funeq.ftn90
+! Creation       : S. Menard,  W. Gong, S. Gravel, V. Bouchet, B. Pabla, GEM-MACH,  June 2008.
+!
+! Description    : Compute Total S(IV), Total NO3, Total AMMONIA, Total CARBON DIOXIDE
+!                  and Net charge due to SO4=
+!
+! Extra info     :
+!
+! Arguments:
+!           IN
+!              c      -->    ALocal Array of Aq. and Gas species
+!              b      -->    Aqueous variable coefficients
+!              nleft  -->    Grids Integration start from "nleft" into memory location
+!              nright -->    Grids Integration end at "nright" into memory location
+!              nptsnz -->    Total number of grids to integrate
+!
+!           OUT
+!              Y      -->    Component Total in
+!                            Y(ivec,1) : Total S(IV)
+!                            Y(ivec,2) : Total NO3
+!                            Y(ivec,3) : Total AMMONIA
+!                            Y(ivec,4) : Total CARBON DIOXIDE
+!                            Y(ivec,5) : Net charge due to SO4=
+!=============================================================================
+
+subroutine mach_incld_funeq (y, c, b, nleft, nright, nptsnz)
+
+   implicit none
+
+   integer, intent(in)  :: nptsnz, nleft, nright
+   real,    intent(in)  :: b(nptsnz, 5), c(nptsnz, 12)
+   real,    intent(out) :: y(nptsnz, 5)
+
+! local variables
+   integer :: ivec
+
+   do ivec = nleft,  nright
+!  total s(iv)
+      y(ivec, 1) = c(ivec, 1) + b(ivec, 2) * c(ivec, 6)
+
+!  total no3
+      y(ivec, 2) = c(ivec, 2) + b(ivec, 2) * c(ivec, 7)
+
+!  total ammonia
+      y(ivec, 3) = c(ivec, 3) + b(ivec, 2) * c(ivec, 8)
+
+!  total carbon dioxide
+      y(ivec, 4) = c(ivec, 4) + b(ivec, 2) * c(ivec, 9)
+
+!  net charge due to so4= and cat1
+      y(ivec, 5) = 2.0 * c(ivec, 11) - c(ivec, 12)
+
+   end do
+
+return
+end

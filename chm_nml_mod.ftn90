@@ -1,0 +1,100 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : chm_nml_mod.ftn90
+! Creation       : H. Landry, Mai 2008
+! Description    : Modules defining namelist keys
+!
+! Extra info     :
+!
+!============================================================================
+
+module chm_nml_mod
+   use chm_utils_mod
+
+   save
+
+   character*4, parameter :: undefined        = '*NA*'
+
+   character(len=NMLKEY_LEN) chm_model_s           ! Name of chemistry model                (Default = 'MACH')
+   character(len=NMLKEY_LEN) chm_pkg_gas_s         ! Name of gas species package            (Default = 'ADOM2')
+   character(len=NMLKEY_LEN) chm_pkg_pm_s          ! Name of PM species package             (Default = 'CAM2BINS')
+   character(len=NMLKEY_LEN) chm_biog_s            ! Name of emissions package              (Default = 'BEIS3.09')
+   character(len=NMLKEY_LEN) chm_gas_drydep_s      ! Name of dry deposition scheme of gas   (Default = 'ROBICHAUD')
+   character(len=NMLKEY_LEN) chm_soa_s             ! Name of SOA scheme                     (Default = 'JIANG')
+   character(len=NMLKEY_LEN) chm_vert_diff_s       ! Name of vertical diffusion algo        (Default = 'FLUX')
+   character(len=NMLKEY_LEN) chm_mj_treatment_s    ! Name of major point treatment algo     (Default = 'PLUMERISE')
+   character(len=NMLKEY_LEN) chm_hetchem_s         ! Name of heterogeneous chemistry scheme (Default = 'HETV')
+   character(len=NMLKEY_LEN) chm_seaflux_s         ! Name of sea salt flux scheme           (Default = 'GONG_MONAHAN')
+   character(len=NMLKEY_LEN) chm_winddust_s        ! Name of wind dust package              (Default = 'CAM_WINDDUST')
+   character(len=NMLKEY_LEN) chm_pm_drydep_s       ! Name of dry deposition scheme of PM    (Default = 'ZHANG')
+   character(len=NMLKEY_LEN) chm_aqueous_s         ! Name of aqueous phase chemistry scheme (Default = 'GONG')
+
+   logical chm_bc_prof_l                     ! In lam mode, use profiles as LBCs            (Default = .true.)
+   logical chm_get_ae_emis_l                 ! Do we import area emissions?                 (Default = .true.)
+   logical chm_get_be_emis_l                 ! Do we import biogenic emissions?             (Default = .true.)
+   logical chm_get_mj_emis_l                 ! Do we import major point sources emissions?  (Default = .true.)
+   logical chm_do_mjpts_l                    ! Do we have any maj. pt. srcs at all for local grid (tile)? (Def. = .true.)
+   logical done_mjpts_cnx_main_specie_list   ! Has connection between linked list and main specie list been made?
+   integer chm_step_factor                   ! Chemistry to physics timestep factor         (Default = '1')
+   real    chm_timestep                      ! Chemistry timestep (seconds)
+   logical done_mjpts_sort                   ! Logical switch to sort or not major point sources emssions
+   logical chm_gaschem_online_l              ! Does CAM work with an online gas chemistry scheme? (Default = .true.)
+   logical chm_hetchem_metstlb_l             ! Heterogenous metastable option              (Default = .true.)
+   logical chm_incld_l                       ! Do we apply in-cloud process?               (Default = .true.)
+   logical chm_blcld_l                       ! Do we apply below cloud process?            (Default = .true.)
+   integer chm_pm_coag_step_intvl            ! Interval of time steps to calculate coagulation coefficient for PM (Default='1')
+   integer chm_debug_2d_i, chm_debug_3d_i    ! Number of debug variables respectively for 2D and 3D fields (default = 0, max = 18)
+   integer chm_intrsec_ndiv                  ! Number of subdivisions per bin in mach_cam_intrsec*
+   integer chm_intrsec_ver                   ! Version number of the code in mach_cam_intrsec*
+   logical chm_aqhi_l                        ! Output of AQHI index: AQ25 and AQ10         (Default = .false.)
+   logical chm_direct_l                      ! Key for carrying out aerosol and O3 dir. effect feedback (rad. trans)
+   logical chm_indirect_l                    ! Key for carrying out aerosol indirect effect feedback (CCN)
+
+   integer  nk_start  ! chemistry activated only from level nk_start to level chm_l_nk
+   integer  jd        ! j slice number for diagnostic outputs of cam species
+   integer  id        ! i grid number for diagnostic outputs of cam species
+   integer  dlev      ! model level number for diagnostic outputs of cam species
+   integer  it        ! time step for diagnostic outputs of cam species
+   integer  itr       ! tracer index for diagnostic outputs of cam species
+   integer  nb_sources_max !maximum number of major point sources
+
+!    real     cam       ! cam version also a plag to turn on (10.) or off (1.) online sulfate chemistry scheme
+!    integer  imm       ! flag for mixing ratio output in kg/kg
+!    integer  ima       ! flag for mass conc output in ug/m**3
+!    integer  inu       ! flag for number conc. output
+!    integer  icob      ! size bin number with which coagulation will apply
+!    integer  icoag     ! time step interval for calculation of coagulation coefficient for PM
+!    integer  i_ss      ! switch for scheme of sea-salt surface flux (GONG_MONAHAN'S SCHEME)
+!    integer  isize     ! number of size bins
+
+   real  aerosize(13) ! aerosol bin boundaries; depends upon number of bins
+
+   character(len = NMLKEY_LEN) :: em_dt_strt_S, em_dt_end_S  ! Date start and end for emissions preparation
+   character(len = NMLKEY_LEN) :: chm_strt_S                 ! Date at which to start the chemistry
+   real                        :: em_nesdt                   ! Emissions preperation timestep (s)
+
+
+   namelist /chem_cfgs/ chm_pkg_pm_s,           chm_pkg_gas_s,         chm_model_s,        chm_biog_s,         &
+                        chm_get_ae_emis_l,      chm_get_be_emis_l,     chm_get_mj_emis_l,                      &
+                        chm_gas_drydep_s,       chm_bc_prof_l,         chm_timestep,       chm_step_factor,    &
+                        chm_vert_diff_s,        em_dt_strt_S,          em_dt_end_S,        em_nesdt,           &
+                        nk_start,               chm_soa_s,             chm_mj_treatment_s,                     &
+                        chm_hetchem_s,          chm_hetchem_metstlb_l, chm_seaflux_s,      chm_winddust_s,     &
+                        chm_pm_drydep_s,        chm_aqueous_s,         jd,                 id,                 &
+                        dlev,                   it,                    itr,                aerosize,           &
+                        chm_incld_l,            chm_blcld_l,           chm_gaschem_online_l,                   &
+                        chm_pm_coag_step_intvl, chm_debug_2d_i,        chm_debug_3d_i,                         &
+                        chm_intrsec_ndiv,       chm_intrsec_ver,       chm_aqhi_l,         chm_indirect_l,     &
+                        chm_direct_l , nb_sources_max, chm_strt_s
+
+end module chm_nml_mod
+

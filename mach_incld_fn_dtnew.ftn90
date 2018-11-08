@@ -1,0 +1,50 @@
+!============================================================================!
+!         Environnement Canada         |        Environment Canada           !
+!                                      |                                     !
+! - Service meteorologique du Canada   | - Meteorological Service of Canada  !
+! - Direction generale des sciences    | - Science and Technology Branch     !
+!   et de la technologie               |                                     !
+!============================================================================!
+!                            http://www.ec.gc.ca                             !
+!============================================================================!
+!
+! Projet/Project : GEM-MACH
+! Fichier/File   : mach_incld_fn_dtnew.ftn90
+! Creation       : W. Gong, S. Gravel, GEM-MACH,  June 2008.
+!
+! Description    : Calculate new time step
+!
+! Extra info     :  ADOM    VERSION: ADOMIIA     LEVEL: 04/18/88     DTNEW        ERT
+!
+! Arguments:
+!           IN
+!
+!              DELT  -->   Time step
+!              K     -->   Iteration number
+!
+!=============================================================================
+
+real function mach_incld_fn_dtnew (delt,k)
+   implicit none
+
+   integer, intent(in) :: k
+   real,    intent(in) :: delt
+
+   if (k > 2) go to 605
+   if (delt >= .10) go to 607
+   if (k == 1) mach_incld_fn_dtnew = 10. * delt
+   if (k == 2) mach_incld_fn_dtnew = 3. * delt
+   go to 606
+607 if (delt >= 3.) go to 609
+    if (k == 1) mach_incld_fn_dtnew = 3. * delt
+    if (k == 2) mach_incld_fn_dtnew = 1.5 * delt
+    go to 606
+609 if (k == 1) mach_incld_fn_dtnew = 1.50 * delt
+    if (k == 2) mach_incld_fn_dtnew = 1.25 * delt
+! following line added by wanmin to be compatible with vector version
+    go to 606
+605 mach_incld_fn_dtnew = delt
+606 continue
+
+return
+end

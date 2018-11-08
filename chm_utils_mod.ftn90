@@ -1,0 +1,61 @@
+module chm_utils_mod
+! TODO faire l'entete
+! This file contains general definitions that can be used in ANY modules
+! All system related "magic numbers" should go here
+
+   save
+
+   integer, parameter :: FILENAME_LEN = 256  ! max length of a filename
+   integer, parameter :: NOMV_LEN     = 4    ! length of variable name in a RPN std file
+   integer, parameter :: LONG_VARNAME = 16   ! Length of longer variable name
+   integer, parameter :: NMLKEY_LEN   = 16   ! max length of a string namelist key
+   integer, parameter :: VARDESC_LEN  = 60   ! max length of var description in a bus
+   integer, parameter :: MAX_DEBUG_VAR = 18  ! max number of debug var for each kind (2D and 3D)
+   integer, parameter :: DICTSTRING_LEN = 120 ! Length of dict string needed by chm_gestdict
+   integer  current_time_step, notre_J, notre_cpu
+
+   integer chm_lun_out ! This is the file unit used for output.  It is assign to STDOUT or /dev/null
+
+#if defined(DEBUG_OUTPUT)
+   logical, parameter :: global_debug = .true.
+#else
+   logical, parameter :: global_debug = .false.
+#endif
+
+
+   contains
+!============================================================================
+! Name           : post_increment
+!
+! Description    : Return the value passed, and then increment it by 1
+!
+! Extra info : Equivalent to the i++ unaryoperator in C
+!
+! Arguments:   None
+!
+!============================================================================
+      integer function post_increment(i)
+         implicit none
+         integer, intent(inout) :: i
+         post_increment = i
+         i = i + 1
+      end function post_increment
+
+!============================================================================
+! Name           : pre_increment
+!
+! Description    : Increment the value passed by 1 and return it
+!
+! Extra info : Equivalent to the ++i unary operator in C
+!
+! Arguments:   None
+!
+!============================================================================
+      integer function pre_increment(i)
+         implicit none
+         integer, intent(inout) :: i
+         i = i + 1
+         pre_increment = i
+      end function pre_increment
+
+end module chm_utils_mod
